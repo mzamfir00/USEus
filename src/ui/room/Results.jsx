@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { Download, Share2, Siren } from 'lucide-react';
+import { Download, Radar, Share2, Siren } from 'lucide-react';
 import { ARENAS, GAMES, XP } from '../../game/games';
 import { canShareClip, downloadClip, shareClip, useClips } from '../../lib/clips';
 import { buzz, Synth } from '../../lib/sound';
@@ -7,6 +7,15 @@ import { Avatar, SectionLabel } from '../primitives';
 import { roundKeyOf } from '../game/GameScreen';
 import { nameOf } from '../game/shared';
 import { formatTime } from './helpers';
+import LazyMap from '../game/zone/LazyMap';
+
+const initials = (name) =>
+  name
+    .split(' ')
+    .map((w) => w[0])
+    .join('')
+    .slice(0, 2)
+    .toUpperCase();
 
 function Reveal({ view, media }) {
   const res = view.results;
@@ -110,6 +119,64 @@ function Strikes({ view }) {
   );
 }
 
+// GPS Playzone replay: the zone, everyone's movement trail, radar pings and penalties.
+function ZoneSummary({ view }) {
+  const z = view.results.reveal?.zone;
+  if (!z) return null;
+  const hunters = new Set(z.hunters);
+  const trails = Object.entries(z.trails).map(([id, pts]) => ({ key: id, pts, hunter: hunters.has(id), label: initials(nameOf(view, id)) }));
+  const pins = [];
+  z.radar.forEach((e) => e.lat != null && pins.push({ key: e.id, kind: 'radar', lat: e.lat, lng: e.lng }));
+  z.outs.forEach((o, i) => o.lat != null && pins.push({ key: `out${i}`, kind: 'out', lat: o.lat, lng: o.lng }));
+  if (z.drop) pins.push({ key: 'drop', kind: 'drop', lat: z.drop.lat, lng: z.drop.lng });
+  const events = [
+    ...z.radar.map((e) =>
+      e.by
+        ? { at: e.at, text: `${nameOf(view, e.by)} used radar · ${e.seen} hider${e.seen === 1 ? '' : 's'} exposed${e.decoys.length ? ` · ${e.decoys.length} decoy` : ''}`, xp: XP.radarPing }
+        : { at: e.at, text: `${nameOf(view, e.decoys[0])} sent a decoy signal` }
+    ),
+    ...z.outs.map((o) => ({ at: o.at, text: `${nameOf(view, o.id)} left the zone · position revealed`, xp: XP.zoneOut })),
+    ...(z.drop?.claimedBy ? [{ at: z.drop.claimedAt, text: `${nameOf(view, z.drop.claimedBy)} grabbed the supply drop`, xp: XP.supplyDrop }] : []),
+  ].sort((a, b) => a.at - b.at);
+
+  return (
+    <>
+      <SectionLabel>Playzone replay</SectionLabel>
+      <div className="card overflow-hidden" data-zone-summary>
+        <div className="h-72 bg-black">
+          <LazyMap center={z.center} radius={z.finalRadius} fitRadius={z.radius} rings={z.finalRadius < z.radius ? [{ r: z.radius, faint: true }] : []} trails={trails} pins={pins} />
+        </div>
+        <div className="muted flex flex-wrap gap-x-4 gap-y-1 border-b border-[var(--border)] px-5 py-2.5 text-[12px]">
+          <span>{z.radius} m zone{z.finalRadius < z.radius ? ` → ${z.finalRadius} m` : ''}</span>
+          {z.hunt && <span>Solid trail = hunter · dotted = hiders</span>}
+          {z.radar.length > 0 && (
+            <span className="inline-flex items-center gap-1">
+              <Radar size={12} /> = radar ping
+            </span>
+          )}
+        </div>
+        {events.length > 0 ? (
+          <div className="divide">
+            {events.map((e, i) => (
+              <div key={i} className="flex items-center justify-between gap-3 px-5 py-2.5 text-[13.5px]">
+                <span className="min-w-0">{e.text}</span>
+                {e.xp ? (
+                  <span className="muted tnum shrink-0">
+                    {e.xp > 0 ? '+' : ''}
+                    {e.xp} XP
+                  </span>
+                ) : null}
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="muted px-5 py-3 text-[13.5px]">Clean round: nobody left the zone.</div>
+        )}
+      </div>
+    </>
+  );
+}
+
 function Clips({ roundKey }) {
   const clips = useClips(roundKey);
   if (!clips.length) return null;
@@ -173,6 +240,7 @@ export default function Results({ view, intent, media }) {
         <Reveal view={view} media={media} />
       </div>
       <Strikes view={view} />
+      <ZoneSummary view={view} />
 
       {res.evolved && (
         <div className="card mt-3 flex items-center justify-between p-5">

@@ -1,6 +1,7 @@
 // Shared device motion + orientation feed.
 // One listener for the whole app: the Snitch Protocol (is the phone still?), Red Light
-// (did it move on red?) and Floor Is Lava (is the camera pointing down?) all read from here.
+// (did it move on red?), Floor Is Lava (is the camera pointing down?) and the GPS Playzone
+// compass (which way is back to the zone?) all read from here.
 import { useSyncExternalStore } from 'react';
 
 const hasMotion = typeof window !== 'undefined' && 'DeviceMotionEvent' in window;
@@ -10,6 +11,7 @@ let mode = !hasMotion ? 'none' : needsAsk ? 'ask' : 'sensor'; // sensor | ask | 
 let lastMoveAt = Date.now();
 let lastSampleAt = 0;
 let orientation = null; // { beta, gamma, at }
+let heading = null; // { deg, at } compass heading, 0 = north, clockwise
 let started = false;
 const listeners = new Set(); // raw motion subscribers
 const subs = new Set(); // status subscribers
@@ -30,8 +32,15 @@ function onMotion(e) {
 }
 
 function onOrientation(e) {
+  if (e.webkitCompassHeading != null) heading = { deg: e.webkitCompassHeading, at: Date.now() }; // iOS
+  else if (e.absolute && e.alpha != null) heading = { deg: (360 - e.alpha) % 360, at: Date.now() };
   if (e.beta == null) return;
   orientation = { beta: e.beta, gamma: e.gamma || 0, at: Date.now() };
+}
+
+// Chrome on Android reports the north-referenced compass on a separate event.
+function onAbsolute(e) {
+  if (e.alpha != null) heading = { deg: (360 - e.alpha) % 360, at: Date.now() };
 }
 
 function start() {
@@ -39,6 +48,7 @@ function start() {
   started = true;
   window.addEventListener('devicemotion', onMotion);
   window.addEventListener('deviceorientation', onOrientation);
+  window.addEventListener('deviceorientationabsolute', onAbsolute);
 }
 
 start();
@@ -67,6 +77,9 @@ export const motionLive = () => Date.now() - lastSampleAt < 2500;
 
 // Milliseconds since the phone last moved (null when no sensor data is available).
 export const stillFor = () => (motionLive() ? Date.now() - lastMoveAt : null);
+
+// Compass heading in degrees (null without a magnetometer reading).
+export const currentHeading = () => (heading && Date.now() - heading.at < 3000 ? heading.deg : null);
 
 export const currentOrientation = () => (orientation && Date.now() - orientation.at < 2000 ? orientation : null);
 

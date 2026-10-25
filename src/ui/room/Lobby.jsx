@@ -1,9 +1,110 @@
 import React, { useEffect, useState } from 'react';
-import { Building2, Car, Check, Dices, House, LocateFixed, ShoppingCart, Target, Trees, X } from 'lucide-react';
-import { ARENAS, GAMES, gamesFor } from '../../game/games';
+import { Building2, Car, Check, Crosshair, Dices, House, LocateFixed, ShoppingCart, Target, TreePine, Trees, X } from 'lucide-react';
+import { ARENAS, GAMES, gamesFor, HUNT, ZONE_ARENAS, ZONE_RADII } from '../../game/games';
 import { Avatar, SectionLabel } from '../primitives';
+import LazyMap from '../game/zone/LazyMap';
 
-const ARENA_ICONS = { indoor: House, park: Trees, supermarket: ShoppingCart, streets: Building2, roadtrip: Car };
+const ARENA_ICONS = { indoor: House, park: Trees, forest: TreePine, supermarket: ShoppingCart, streets: Building2, roadtrip: Car };
+const PLACEHOLDERS = { indoor: 'Alex’s living room', park: 'Central Park', forest: 'Pine Ridge Trail', supermarket: 'Mega Image', streets: 'Old Town', roadtrip: 'Rest stop on the A1' };
+const SIM_CENTER = { lat: 40.7812, lng: -73.9665 }; // simulated GPS fallback (Central Park)
+
+const getPosition = (opts) => new Promise((resolve, reject) => navigator.geolocation.getCurrentPosition(resolve, reject, opts));
+
+function Toggle({ label, sub, on, disabled, onChange }) {
+  return (
+    <div className="flex items-center gap-3 py-3">
+      <div className="min-w-0 flex-1">
+        <div className="text-[14.5px] font-medium">{label}</div>
+        <div className="muted text-[12.5px] leading-snug">{sub}</div>
+      </div>
+      <button type="button" role="switch" aria-checked={on} aria-label={label} className="switch" disabled={disabled} onClick={() => onChange(!on)} />
+    </div>
+  );
+}
+
+// GPS Playzone: lock the arena centre with one tap, pick a radius, optional closing ring.
+function ZoneSetup({ st, isHost, set }) {
+  const z = st.zone;
+  const [locking, setLocking] = useState(false);
+  const [note, setNote] = useState('');
+  const lock = async () => {
+    setLocking(true);
+    setNote('');
+    try {
+      if (!navigator.geolocation) throw new Error('no-geo');
+      const pos = await getPosition({ enableHighAccuracy: true, timeout: z.sim ? 5000 : 15000, maximumAge: 0 });
+      set({ zone: { center: { lat: pos.coords.latitude, lng: pos.coords.longitude } } });
+      setNote(`Locked to ±${Math.round(pos.coords.accuracy)} m`);
+    } catch (e) {
+      if (z.sim) {
+        set({ zone: { center: SIM_CENTER } });
+        setNote('No GPS here — using a simulated centre.');
+      } else setNote(e?.code === 1 ? 'Location permission denied. Allow it, or turn on simulated GPS to test indoors.' : 'No GPS fix yet. Step outside, or turn on simulated GPS to test indoors.');
+    }
+    setLocking(false);
+  };
+  const hunts = Object.keys(HUNT)
+    .map((id) => GAMES[id].short)
+    .join(', ');
+
+  return (
+    <>
+      <SectionLabel
+        right={
+          <button type="button" role="switch" aria-checked={z.on} aria-label="GPS Playzone" className="switch" disabled={!isHost} onClick={() => set({ zone: { on: !z.on } })} />
+        }
+      >
+        GPS Playzone
+      </SectionLabel>
+      <div className="card px-4 pt-4" data-zone-setup>
+        {!z.on ? (
+          <p className="muted pb-4 text-[13.5px] leading-snug">Off. Turn it on for a live GPS boundary, out-of-bounds penalties, radar pings and supply drops.</p>
+        ) : (
+          <>
+            <button type="button" className={`btn ${z.center ? 'btn-secondary' : 'btn-primary'} !min-h-[48px] text-[15px]`} disabled={!isHost || locking} onClick={lock}>
+              <Crosshair size={17} className={locking ? 'animate-spin' : ''} />
+              {locking ? 'Getting a GPS fix…' : z.center ? 'Re-lock arena center here' : 'Lock arena center here'}
+            </button>
+            {(note || z.center) && (
+              <div className="muted mt-2 text-center text-[12.5px]" data-zone-center={z.center ? `${z.center.lat},${z.center.lng}` : ''}>
+                {z.center ? `${z.center.lat.toFixed(5)}, ${z.center.lng.toFixed(5)}` : ''}
+                {z.center && note ? ' · ' : ''}
+                {note}
+              </div>
+            )}
+            {z.center && (
+              <div className="mt-3 h-44 overflow-hidden rounded-[14px] border border-[var(--border)]">
+                <LazyMap center={z.center} radius={z.radius} interactive={false} />
+              </div>
+            )}
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              {ZONE_RADII.map((o) => (
+                <button
+                  key={o.m}
+                  type="button"
+                  disabled={!isHost}
+                  aria-pressed={z.radius === o.m}
+                  onClick={() => set({ zone: { radius: o.m } })}
+                  className={`rounded-[14px] border px-3 py-2.5 text-left transition-colors ${z.radius === o.m ? 'border-[var(--fg)] bg-[var(--fg)] text-[var(--bg)]' : 'border-[var(--border)] disabled:opacity-40'}`}
+                >
+                  <div className="tnum text-[16px] font-bold">{o.m} m</div>
+                  <div className={`text-[12px] ${z.radius === o.m ? 'opacity-70' : 'muted'}`}>{o.label}</div>
+                </button>
+              ))}
+            </div>
+            <div className="divide mt-1">
+              <Toggle label="Shrinking battle-royale ring" sub="Final 3 minutes: the zone shrinks 20% every 45 s." on={z.shrink} disabled={!isHost} onChange={(v) => set({ zone: { shrink: v } })} />
+              <Toggle label="Simulated GPS" sub="Indoor testing: phones move with an on-screen pad instead of real GPS." on={z.sim} disabled={!isHost} onChange={(v) => set({ zone: { sim: v } })} />
+            </div>
+            <p className="muted border-t border-[var(--border)] py-3 text-[12.5px] leading-snug">
+              Every phone shares its location during the round. Radar pings, decoys, heartbeat and the supply drop play in {hunts}.
+            </p>
+          </>
+        )}
+      </div>
+    </>
+  );
+}
 
 // GPS → place name (OpenStreetMap reverse geocoding), falling back to coordinates.
 async function locateName() {
@@ -35,7 +136,9 @@ export default function Lobby({ view, intent, onInvite }) {
   const [locating, setLocating] = useState(false);
   const fits = gamesFor(st.arena, online.length);
   const chosen = GAMES[st.game];
-  const canStart = st.mode === 'random' ? fits.length > 0 : online.length >= chosen.min;
+  const zoneArena = ZONE_ARENAS.includes(st.arena) && !!st.zone;
+  const needsCenter = zoneArena && st.zone.on && !st.zone.center;
+  const canStart = (st.mode === 'random' ? fits.length > 0 : online.length >= chosen.min) && !needsCenter;
 
   useEffect(() => setLocation(st.location), [st.location]);
   const set = (patch) => intent({ type: 'settings', ...patch });
@@ -73,7 +176,7 @@ export default function Lobby({ view, intent, onInvite }) {
       </div>
 
       <SectionLabel>{isHost ? 'Arena' : 'Arena · set by host'}</SectionLabel>
-      <div className="grid grid-cols-5 gap-2">
+      <div className="grid grid-cols-3 gap-2">
         {Object.values(ARENAS).map((a) => {
           const Icon = ARENA_ICONS[a.id];
           const on = st.arena === a.id;
@@ -86,7 +189,7 @@ export default function Lobby({ view, intent, onInvite }) {
               className={`flex flex-col items-center gap-1.5 rounded-[16px] border py-3 text-[11px] font-medium transition-colors ${on ? 'border-[var(--fg)] bg-[var(--fg)] text-[var(--bg)]' : 'border-[var(--border)] bg-[var(--card)] disabled:opacity-40'}`}
             >
               <Icon size={19} />
-              {a.label.split(' ')[0]}
+              {a.label}
             </button>
           );
         })}
@@ -99,7 +202,7 @@ export default function Lobby({ view, intent, onInvite }) {
           onChange={(e) => setLocation(e.target.value)}
           onBlur={() => location !== st.location && set({ location })}
           onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
-          placeholder={`Exact location, e.g. ${st.arena === 'supermarket' ? 'Mega Image' : st.arena === 'park' ? 'Central Park' : 'Alex’s living room'}`}
+          placeholder={`Exact location, e.g. ${PLACEHOLDERS[st.arena] || PLACEHOLDERS.indoor}`}
           maxLength={48}
           aria-label="Exact location name"
         />
@@ -125,6 +228,8 @@ export default function Lobby({ view, intent, onInvite }) {
           </button>
         )}
       </div>
+
+      {zoneArena && <ZoneSetup st={st} isHost={isHost} set={set} />}
 
       <SectionLabel>Game</SectionLabel>
       <div className="segmented">
@@ -198,7 +303,7 @@ export default function Lobby({ view, intent, onInvite }) {
         <div className="mx-auto max-w-md px-6 pb-[calc(20px+var(--safe-bottom))]">
           {isHost ? (
             <button type="button" className="btn btn-primary" disabled={!canStart || online.length < 2} onClick={() => intent({ type: 'start' })}>
-              {st.mode === 'random' ? 'Spin the wheel' : `Start ${chosen.name}`}
+              {needsCenter ? 'Lock the arena center first' : st.mode === 'random' ? 'Spin the wheel' : `Start ${chosen.name}`}
             </button>
           ) : (
             <div className="muted flex h-14 items-center justify-center gap-2 text-[15px]">

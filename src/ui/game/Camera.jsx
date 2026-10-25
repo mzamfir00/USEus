@@ -3,7 +3,7 @@ import { Flashlight, FlashlightOff, Mic, MicOff, Siren, SwitchCamera, Zap } from
 import { addClip } from '../../lib/clips';
 import { stillFor } from '../../lib/motion';
 import { buzz, Synth } from '../../lib/sound';
-import { IntentContext } from './shared';
+import { IntentContext, ZoneStrobeContext } from './shared';
 
 const SAMPLE_MS = 1500; // covered-lens sampling interval
 const BLOCK_STD = 6; // luminance std-dev below this = nothing visible (pocket / hand)
@@ -62,6 +62,7 @@ const Camera = forwardRef(function Camera(
   const intentCtx = useContext(IntentContext);
   const intentRef = useRef(intentCtx);
   intentRef.current = intentCtx;
+  const zoneStrobe = useContext(ZoneStrobeContext); // GPS Playzone out-of-bounds penalty
   const video = useRef(null);
   const canvas = useRef(null);
   const camStream = useRef(null);
@@ -241,7 +242,7 @@ const Camera = forwardRef(function Camera(
 
   // Zombie beacon: slow torch strobe.
   useEffect(() => {
-    if (!beacon || penalty) return undefined;
+    if (!beacon || penalty || zoneStrobe) return undefined;
     let on = false;
     const id = setInterval(() => {
       on = !on;
@@ -253,7 +254,23 @@ const Camera = forwardRef(function Camera(
       transient.current = false;
       syncTorch();
     };
-  }, [beacon, penalty, syncTorch]);
+  }, [beacon, penalty, zoneStrobe, syncTorch]);
+
+  // Playzone penalty: the flashlight strobes (250 ms) while your position is revealed.
+  useEffect(() => {
+    if (!zoneStrobe || penalty) return undefined;
+    let on = false;
+    const id = setInterval(() => {
+      on = !on;
+      transient.current = on;
+      syncTorch();
+    }, 250);
+    return () => {
+      clearInterval(id);
+      transient.current = false;
+      syncTorch();
+    };
+  }, [zoneStrobe, penalty, syncTorch]);
 
   /* ------------------------------- compositor ------------------------------ */
   useEffect(() => {
@@ -610,7 +627,7 @@ const Camera = forwardRef(function Camera(
       {screenLight && <div className="pointer-events-none absolute inset-0 z-[5]" style={{ boxShadow: 'inset 0 0 0 22vmin #fff' }} />}
       {screenFlash && <div className="pointer-events-none absolute inset-0 z-30 bg-white" />}
 
-      <div className="absolute right-4 top-[max(150px,calc(env(safe-area-inset-top)+136px))] z-10 flex flex-col items-center gap-2">
+      <div className="absolute right-4 top-[calc(max(150px,calc(env(safe-area-inset-top)+136px))+var(--zone-h,0px))] z-10 flex flex-col items-center gap-2">
         {status === 'live' && (
           <CtlButton label="Flip camera" onClick={() => setFacing((f) => (f === 'user' ? 'environment' : 'user'))}>
             <SwitchCamera size={18} />
@@ -682,7 +699,7 @@ const Camera = forwardRef(function Camera(
       )}
 
       {warning !== null && !penalty && (
-        <div className="absolute inset-x-4 top-[max(150px,calc(env(safe-area-inset-top)+136px))] z-30 mr-14 rounded-[18px] bg-white px-5 py-4 text-center text-black">
+        <div className="absolute inset-x-4 top-[calc(max(150px,calc(env(safe-area-inset-top)+136px))+var(--zone-h,0px))] z-30 mr-14 rounded-[18px] bg-white px-5 py-4 text-center text-black">
           <div className="text-[13px] font-semibold">Camera blocked / not filming</div>
           <div className="mt-1 text-[22px] font-bold leading-tight tracking-[-0.02em]">Resume in {warning}…</div>
           <div className="mt-1 text-[12.5px] text-black/60">Uncover the lens or the alarm goes off</div>

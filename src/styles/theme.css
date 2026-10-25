@@ -276,3 +276,67 @@
 .st-kinetic.lv2 .btn-primary { box-shadow: 4px 4px 0 #555; }
 .st-kinetic.lv3 { --title-font: 'Archivo Black', var(--sans); }
 .st-kinetic.lv3 .title, .st-kinetic.lv3 .headline { font-weight: 400; text-transform: uppercase; letter-spacing: -0.02em; }
+
+/* ------------------------------ GPS Playzone ------------------------------ */
+
+.switch {
+  position: relative;
+  width: 46px;
+  height: 28px;
+  flex-shrink: 0;
+  border-radius: 9999px;
+  background: var(--border);
+  transition: background-color 0.2s ease;
+}
+.switch::after {
+  content: '';
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 22px;
+  height: 22px;
+  border-radius: 9999px;
+  background: var(--muted);
+  transition: transform 0.2s ease, background-color 0.2s ease;
+}
+.switch[aria-checked='true'] { background: var(--fg); }
+.switch[aria-checked='true']::after { transform: translateX(18px); background: var(--bg); }
+.switch:disabled { opacity: 0.4; }
+
+@keyframes drain { from { transform: scaleX(1); } to { transform: scaleX(0); } }
+@keyframes ecg { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+@keyframes beat { 0%, 100% { transform: scale(1); } 15% { transform: scale(1.3); } 30% { transform: scale(0.95); } 45% { transform: scale(1.15); } }
+@keyframes ping { from { transform: scale(0.6); opacity: 0.9; } to { transform: scale(2.2); opacity: 0; } }
+@keyframes oob { 0%, 100% { box-shadow: inset 0 0 0 4px #fff; } 50% { box-shadow: inset 0 0 0 14px #fff; } }
+.drain { transform-origin: left center; }
+
+/* Leaflet, monochrome */
+.tmap.leaflet-container { background: #000; font-family: var(--sans); outline: none; }
+.tmap .leaflet-tile-pane { filter: grayscale(1) contrast(1.08); }
+.tmap.leaflet-container .leaflet-control-attribution { background: rgba(0, 0, 0, 0.65); color: #8a8a8a; font-size: 9.5px; padding: 1px 6px; }
+.tmap.leaflet-container .leaflet-control-attribution a { color: #bdbdbd; }
+.tm-icon { background: none; border: 0; }
+.tm-me { position: relative; width: 44px; height: 44px; }
+.tm-me-dot { position: absolute; left: 13px; top: 13px; width: 18px; height: 18px; border-radius: 9999px; background: #fff; border: 4px solid #000; box-shadow: 0 0 0 2px #fff; }
+.tm-me-cone {
+  display: none;
+  position: absolute;
+  inset: 0;
+  transform: rotate(var(--hd, 0deg));
+  background: conic-gradient(from -28deg, rgba(255, 255, 255, 0.45) 0 56deg, transparent 56deg);
+  border-radius: 9999px;
+  -webkit-mask: radial-gradient(circle, transparent 9px, #000 10px);
+  mask: radial-gradient(circle, transparent 9px, #000 10px);
+}
+.tm-me[data-heading] .tm-me-cone { display: block; }
+.tm-blip { position: relative; width: 34px; height: 34px; display: grid; place-items: center; }
+.tm-blip b { position: relative; z-index: 1; display: grid; place-items: center; width: 26px; height: 26px; border-radius: 9999px; background: #fff; color: #000; font-size: 10.5px; font-weight: 800; }
+.tm-ring { position: absolute; inset: 0; border-radius: 9999px; border: 2px solid #fff; animation: ping 1s ease-out infinite; }
+.tm-reveal { width: 30px; height: 30px; display: grid; place-items: center; border-radius: 8px; background: #fff; color: #000; border: 2px solid #000; box-shadow: 0 0 0 2px #fff; animation: blink 0.8s steps(2) infinite; }
+.tm-reveal b { font-size: 10.5px; font-weight: 800; }
+.tm-drop { width: 30px; height: 30px; display: grid; place-items: center; border-radius: 6px; background: #000; color: #fff; border: 2px solid #fff; transform: rotate(45deg); }
+.tm-drop svg { transform: rotate(-45deg); }
+.tm-radar { width: 26px; height: 26px; border-radius: 9999px; border: 2px solid #fff; display: grid; place-items: center; background: rgba(0, 0, 0, 0.6); }
+.tm-radar span { width: 8px; height: 8px; border-radius: 9999px; background: #fff; }
+.tm-out { width: 22px; height: 22px; display: grid; place-items: center; border-radius: 9999px; background: #000; border: 2px dashed #fff; color: #fff; font-size: 15px; font-weight: 700; line-height: 1; }
+.tm-tag { width: 22px; height: 22px; display: grid; place-items: center; border-radius: 9999px; background: #000; border: 1.5px solid #fff; color: #fff; font-size: 9px; font-weight: 800; }

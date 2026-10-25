@@ -13,7 +13,7 @@ An IRL party game where every player uses their own phone. Spin a mission, get y
   - **History:** past rounds, with location and result.
   - **Profile:** stats, Room Aesthetics, sound, cloud database and sign out.
 - **Host setup:**
-  - **Arena:** Indoor, Park, Supermarket, City Streets or Roadtrip.
+  - **Arena:** Indoor, Park, Forest, Supermarket / Mall, City Streets or Roadtrip.
   - **Exact location:** typed, or filled in with one tap from GPS. It's stamped on the camera video and saved in the match history.
   - **Game choice:** **Random roulette** (a synced monochrome wheel over the games that fit the arena) or **Choose game**, with an optional pick of who starts.
 - **Six party games**, with every phone as a controller:
@@ -24,7 +24,7 @@ An IRL party game where every player uses their own phone. Spin a mission, get y
   - **Timebomb Hot Potato:** an accelerating tick plays on the holder's phone. They do a 5-second dare, then pass the bomb to a named player. The fuse is hidden.
   - **Undercover Saboteur:** everyone films a shared challenge. The saboteur alone gets 3 covert tasks, then every phone votes.
 - **Five childhood classics:**
-  - **Hide & Seek: Snitch Cam:** the seeker counts down 30 s, then hunts with a camera, flashlight, flash pulse and 3 radar pings. Hiders face a 10-second peek check every 45 s.
+  - **Hide & Seek: Snitch Cam:** the seeker counts down 30 s, then hunts with a camera, flashlight, flash pulse and 3 sound pings. Hiders face a 10-second peek check every 45 s.
   - **Sardines:** hiders silently squeeze in with the first hider; the last one still searching loses.
   - **The Floor Is Lava:** random 5-second siren countdowns. Phones judge camera-down orientation (or a tap fallback) and take proof photos.
   - **Infected Zombie Tag:** the zombie's flashlight strobes as a beacon, and tagged survivors join the horde.
@@ -36,6 +36,17 @@ An IRL party game where every player uses their own phone. Spin a mission, get y
   - a missed peek check.
 
   It stops only when filming resumes. Each violation costs 50 XP.
+- **GPS Playzone** (Park, Forest, Mall, City Streets): a live boundary built on `navigator.geolocation.watchPosition` and Haversine distances in metres, drawn on a Leaflet map with CartoDB Dark Matter tiles (OpenStreetMap data, no API key).
+  - **Setup:** the host locks the arena center with one tap and picks a radius: 30 m Compact, 75 m Mall / Plaza, 150 m Park / Forest or 300 m Urban Sector. Two optional switches:
+    - **Shrinking battle-royale ring:** −20% every 45 s in the final 3 minutes.
+    - **Simulated GPS:** for indoor testing, phones move with an on-screen pad.
+  - **Out of bounds:** leaving the zone (with a 5 m jitter buffer) starts a full-screen 10-second countdown, with a compass arrow and the distance back to the zone. At zero the phone plays a siren with a flashlight + screen strobe, costs 200 XP, and streams its live pin to the other side's map until it's back inside.
+  - **Hunts** (Hide & Seek, Sardines, Infected):
+    - **Radar ping:** each hunter gets 2 pings at −150 XP each. A ping shows the remaining hiders on the tactical map for exactly 3 s and alerts every hider.
+    - **Decoy:** each hider can drop 1 decoy, which puts a fake blip 35 m away on the hunters' next radar.
+    - **Heartbeat:** an ECG appears on the hider's HUD when a hunter is within 20 m, and speeds up at 10 m and 5 m.
+    - **Supply drop:** lands mid-round. The first hider within 8 m gets +300 XP and Ghost Immunity, which hides them from the next radar ping.
+  - **Results:** a replay map with the zone, everyone's movement trails, radar ping spots and penalties.
 - **Camera tools:** flashlight toggle (hardware torch, or a front screen light as fallback), flash pulse for hunters, a mid-round flip that never counts as a violation, and a live noise meter. In stealth games, noise above the threshold for over a second flashes the hider's light, chirps, and alerts the seekers.
 - **Real video:** a canvas compositor (grayscale camera plus a REC / game / location / room stamp) records through `MediaRecorder`. Clips can be replayed, saved or shared from the results screen.
 - **Room DNA:** finished rounds level a room up toward the style of its most-played arena, and unlock that style for each player's profile.
@@ -56,11 +67,13 @@ src/
   lib/net.js            room transport: PeerJS (WebRTC) + Supabase Realtime
   lib/sound.js          Web Audio synth
   hooks/useRoom.js      host loop (authoritative state) + client loop (reconnects)
-  game/engine.js        host-authoritative rules for all six games, scoring, Room DNA, per-phone views
+  game/engine.js        host-authoritative rules for every game + the GPS Playzone, scoring, Room DNA, per-phone views
   game/games.js         arenas, game definitions, scripts, dares, covert tasks, XP table
   game/missions.js      challenges used by Undercover Saboteur
   lib/clips.js          recorded clips (replay / save / share)
-  lib/motion.js         shared motion + orientation feed (iOS permission flow)
+  lib/motion.js         shared motion + orientation + compass feed (iOS permission flow)
+  lib/geo.js            Haversine / bearing / destination maths, zone radius + shrinking ring
+  ui/game/zone/*        GPS Playzone HUD, out-of-bounds penalty, radar, decoy, heartbeat, Leaflet map
   ui/game/*             interactive role screens, roulette wheel, camera recorder
   ui/Auth.jsx, ui/tabs/*, ui/room/*, ui/primitives.jsx
   styles/theme.css      #000 / #FFF / #141414 / #262626 design system + DNA mutations

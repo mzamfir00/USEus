@@ -35,7 +35,7 @@ export function PaparazziSniper({ view, serverNow, intent, onLeave, hud, media }
             <div className="absolute left-1/2 top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full border border-white" />
           </div>
         </div>
-        <div className="absolute inset-x-4 top-[max(150px,calc(env(safe-area-inset-top)+136px))] z-10 mr-14 rounded-[16px] border border-white/15 bg-black/60 px-4 py-3 backdrop-blur">
+        <div className="absolute inset-x-4 top-[calc(max(150px,calc(env(safe-area-inset-top)+136px))+var(--zone-h,0px))] z-10 mr-14 rounded-[16px] border border-white/15 bg-black/60 px-4 py-3 backdrop-blur">
           <div className="text-[12px] font-medium text-white/60">Target</div>
           <div className="text-[20px] font-bold leading-tight">{target ? `@${userOf(view, target)}` : '—'}</div>
           <div className="text-[13px] text-white/70">{target ? nameOf(view, target) : ''}</div>

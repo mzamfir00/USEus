@@ -4,9 +4,13 @@ import { GAMES } from '../../game/games';
 import { buzz, Synth } from '../../lib/sound';
 import { Sheet } from '../primitives';
 import { formatTime, useNow } from '../room/helpers';
+import ZoneLayer from './zone/ZoneLayer';
 
 // Lets the shell send intents (host: end round) without threading props through every game.
 export const IntentContext = createContext(() => {});
+
+// GPS Playzone → Camera: strobe the flashlight while this player's position is revealed.
+export const ZoneStrobeContext = createContext(false);
 
 export const nameOf = (view, id) => view.players.find((p) => p.id === id)?.name || 'Someone';
 export const userOf = (view, id) => view.players.find((p) => p.id === id)?.username || '';
@@ -40,6 +44,8 @@ export function GameShell({ view, serverNow, roleLabel, onLeave, children, light
   useWakeLock();
   const intent = useContext(IntentContext);
   const [menu, setMenu] = useState(false);
+  const [zoneStrobe, setZoneStrobe] = useState(false);
+  const [zoneRows, setZoneRows] = useState(0); // bottom edge of the GPS Playzone HUD, px from the top
   const isHost = view.hostId === view.me;
   const r = view.round;
   const left = Math.max(0, r.endsAt - serverNow());
@@ -58,8 +64,12 @@ export function GameShell({ view, serverNow, roleLabel, onLeave, children, light
   const chip = light ? 'bg-black/10 border-black/15' : 'bg-black/55 border-white/15';
   return (
     <div className={`fade fixed inset-0 z-40 ${light ? 'bg-white' : 'bg-black'} ${fg}`}>
-      <div className="relative mx-auto h-full max-w-md overflow-hidden">
-        {children}
+      {/* Game banners and camera controls slide down below the Playzone HUD. */}
+      <div
+        className="relative mx-auto h-full max-w-md overflow-hidden"
+        style={r.zone ? { '--zone-h': `${Math.max(0, zoneRows + 8 - 150)}px`, '--zone-top': `${Math.max(0, zoneRows + 8 - 84)}px` } : undefined}
+      >
+        <ZoneStrobeContext.Provider value={zoneStrobe}>{children}</ZoneStrobeContext.Provider>
         <div className="pointer-events-none absolute inset-x-0 top-0 z-20 flex items-center gap-3 px-4 pt-[max(14px,env(safe-area-inset-top))]">
           <button
             type="button"
@@ -75,17 +85,20 @@ export function GameShell({ view, serverNow, roleLabel, onLeave, children, light
           </div>
           {r.game !== 'hot_potato' && <div className={`tnum rounded-full border px-3.5 py-2.5 text-[14px] font-semibold backdrop-blur ${chip}`}>{formatTime(left)}</div>}
         </div>
-        {alarms.length > 0 && (
-          <div className="pointer-events-none absolute inset-x-4 top-[max(66px,calc(env(safe-area-inset-top)+54px))] z-[25] space-y-1.5">
+        {r.zone && r.roles[view.me] ? (
+          <ZoneLayer view={view} serverNow={serverNow} intent={intent} onStrobe={setZoneStrobe} onRows={setZoneRows}>
             {alarms.map((id) => (
-              <div key={id} className="pop flex items-center gap-2.5 rounded-[14px] bg-white px-3.5 py-2.5 text-[12.5px] font-semibold leading-snug text-black">
-                <Siren size={16} className="shrink-0" />
-                <span>
-                  @{userOf(view, id)} STOPPED FILMING — ALARM & FLASH TRIGGERED
-                </span>
-              </div>
+              <AlarmBanner key={id} view={view} id={id} />
             ))}
-          </div>
+          </ZoneLayer>
+        ) : (
+          alarms.length > 0 && (
+            <div className="pointer-events-none absolute inset-x-4 top-[max(66px,calc(env(safe-area-inset-top)+54px))] z-[25] space-y-1.5">
+              {alarms.map((id) => (
+                <AlarmBanner key={id} view={view} id={id} />
+              ))}
+            </div>
+          )
         )}
       </div>
       {menu && (
@@ -107,6 +120,15 @@ export function GameShell({ view, serverNow, roleLabel, onLeave, children, light
           </Sheet>
         </div>
       )}
+    </div>
+  );
+}
+
+function AlarmBanner({ view, id }) {
+  return (
+    <div className="pop flex items-center gap-2.5 rounded-[14px] bg-white px-3.5 py-2.5 text-[12.5px] font-semibold leading-snug text-black">
+      <Siren size={16} className="shrink-0" />
+      <span>@{userOf(view, id)} STOPPED FILMING — ALARM & FLASH TRIGGERED</span>
     </div>
   );
 }

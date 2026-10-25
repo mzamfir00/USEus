@@ -1,8 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { MapPin, Siren } from 'lucide-react';
+import { MapPin, Radar, Siren } from 'lucide-react';
 import { requestMotion, useMotionMode } from '../../lib/motion';
 import { PICK_MS, WHEEL_MS } from '../../game/engine';
-import { ARENAS, GAMES } from '../../game/games';
+import { ARENAS, GAMES, HUNT, XP } from '../../game/games';
 import { buzz, Synth } from '../../lib/sound';
 import { useNow } from '../room/helpers';
 import { nameOf } from './shared';
@@ -112,6 +112,11 @@ export default function Intro({ view, serverNow }) {
   const motion = useMotionMode();
   const films = g.film.includes(r.roles[view.me]);
 
+  // Ask for location during the intro so the prompt doesn't land mid-game.
+  useEffect(() => {
+    if (r.zone && !r.zone.sim) navigator.geolocation?.getCurrentPosition(() => {}, () => {}, { enableHighAccuracy: true, timeout: 15000 });
+  }, [r.spinId]); // eslint-disable-line react-hooks/exhaustive-deps
+
   useEffect(() => {
     if (!isRandom && !played.current && now < revealAt) {
       played.current = true;
@@ -146,6 +151,16 @@ export default function Intro({ view, serverNow }) {
               <span>Snitch Protocol: you must keep filming. Stopping, leaving the app or covering the lens sets off a siren and flashing lights.</span>
             </div>
           )}
+          {r.zone && (
+            <div className="mx-auto mt-3 flex max-w-[32ch] items-start gap-2 rounded-[16px] border border-[var(--border)] px-4 py-3 text-left text-[13px] leading-snug" data-zone-intro>
+              <Radar size={16} className="mt-0.5 shrink-0" />
+              <span>
+                GPS Playzone · {r.zone.radius} m{r.zone.shrink ? ', shrinking in the final 3 minutes' : ''}. Leave it for 10 s and your live position is revealed ({XP.zoneOut} XP).
+                {r.hunt ? ` ${HUNT[r.game].hunter}s get 2 radar pings; ${HUNT[r.game].hiders} get a decoy, a heartbeat warning and a mid-round supply drop.` : ''}
+                {r.zone.sim ? ' Simulated GPS: move with the on-screen pad.' : ''}
+              </span>
+            </div>
+          )}
           {motion === 'ask' && (
             <button
               type="button"
@@ -155,7 +170,7 @@ export default function Intro({ view, serverNow }) {
                 requestMotion();
               }}
             >
-              Enable motion sensors
+              {r.zone ? 'Enable motion & compass' : 'Enable motion sensors'}
             </button>
           )}
           {r.location && (

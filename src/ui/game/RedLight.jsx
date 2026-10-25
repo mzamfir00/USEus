@@ -110,7 +110,7 @@ export function RedLightRunner({ view, serverNow, intent, onLeave, hud }) {
     <GameShell view={view} serverNow={serverNow} roleLabel={out ? 'Out · keep filming' : 'Runner · reach the watcher'} onLeave={onLeave}>
       <Camera hud={hud} record enforce>
         {alarm && <div className="pointer-events-none absolute inset-0 z-30" style={{ animation: 'flash .15s steps(2) infinite', background: '#fff' }} />}
-        <div className="absolute inset-x-4 top-[max(150px,calc(env(safe-area-inset-top)+136px))] z-10 mr-14">
+        <div className="absolute inset-x-4 top-[calc(max(150px,calc(env(safe-area-inset-top)+136px))+var(--zone-h,0px))] z-10 mr-14">
           <div className={`pointer-events-none rounded-[18px] px-5 py-3 text-center ${out ? 'border border-white/20 bg-black/70 text-white' : red ? 'bg-white text-black' : 'border border-white/20 bg-black/60 text-white backdrop-blur'}`}>
             <div className="text-[30px] font-bold tracking-[-0.03em]">{out ? 'YOU MOVED · OUT' : red ? 'FREEZE' : 'GREEN · MOVE'}</div>
             {!out && red && <div className="text-[13px] text-black/60">{touch ? 'Keep holding the button' : 'Your phone is watching for motion'}</div>}

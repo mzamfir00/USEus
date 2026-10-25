@@ -4,7 +4,27 @@
 
 import { MISSIONS } from './missions';
 import { DEFAULT_PACK, DNA_STYLES, MAX_PLAYERS } from './constants';
-import { ARENAS, COVERT_TASKS, DARES, DIRECTIONS, GAMES, gamesFor, PRODUCTS, scriptFor, XP } from './games';
+import {
+  ARENAS,
+  COVERT_TASKS,
+  DARES,
+  DECOY_OFFSET,
+  DEFAULT_RADIUS,
+  DIRECTIONS,
+  DROP_RADIUS,
+  GAMES,
+  gamesFor,
+  HEARTBEAT_BANDS,
+  HUNT,
+  PRODUCTS,
+  RADAR_MS,
+  RADAR_USES,
+  scriptFor,
+  XP,
+  ZONE_ARENAS,
+  ZONE_RADII,
+} from './games';
+import { bearing, destination, haversine, randomInCircle, SHRINK_WINDOW, zoneRadius, zoneSide } from '../lib/geo';
 
 export const WHEEL_MS = 3800; // random roulette spin
 export const PICK_MS = 1400; // manual pick reveal
@@ -16,6 +36,7 @@ export const FREEZE_GRACE = 700;
 export const DARE_MS = 5000;
 export const INJECT_COOLDOWN = 5000;
 export const MAX_SHOTS = 3;
+export const ZONE_GRACE = 10000; // seconds outside the playzone before your position is revealed
 
 export const missionById = (id) => MISSIONS.find((m) => m.id === id) || null;
 
@@ -55,18 +76,31 @@ export function dnaInfo(dna) {
 
 /* ------------------------------- Room state ------------------------------ */
 
+const defaultZone = (arena, saved) => ({
+  on: saved?.on ?? true,
+  center: null, // locked fresh at the field every session
+  radius: ZONE_RADII.some((o) => o.m === saved?.radius) ? saved.radius : DEFAULT_RADIUS[arena] || 150,
+  shrink: !!saved?.shrink,
+  sim: false,
+});
+
+const validPoint = (p) => p && Number.isFinite(p.lat) && Number.isFinite(p.lng) && Math.abs(p.lat) <= 90 && Math.abs(p.lng) <= 180;
+const round6 = (n) => Math.round(n * 1e6) / 1e6;
+
 export function createRoom({ code, host, saved }) {
   const scores = saved?.scores || {};
+  const arena = ARENAS[saved?.settings?.arena] ? saved.settings.arena : 'indoor';
   return {
     code,
     hostId: host.id,
     phase: 'lobby', // lobby | round | review | results
     settings: {
-      arena: saved?.settings?.arena || 'indoor',
+      arena,
       location: saved?.settings?.location || '',
       mode: saved?.settings?.mode || 'random',
-      game: saved?.settings?.game || 'blind_sonar',
+      game: GAMES[saved?.settings?.game] ? saved.settings.game : 'blind_sonar',
       starter: null,
+      zone: defaultZone(arena, saved?.settings?.zone),
     },
     packName: DEFAULT_PACK,
     players: [{ ...host, isHost: true, connected: true, xp: scores[host.username] || 0 }],
@@ -93,6 +127,129 @@ export const roundClock = (round, now) => ({
   started: now >= round.startsAt,
   remaining: Math.max(0, round.endsAt - now),
 });
+
+/* ------------------------------ GPS Playzone ----------------------------- */
+
+// Hunters right now (zombie tag's horde grows, sardine hunters who squeezed in stop hunting).
+export function isHunter(r, id) {
+  if (!r?.hunt) return false;
+  if (r.game === 'zombie_tag') return r.data.zombies.includes(id);
+  if (r.game === 'sardines') return r.roles[id] === 'hunter' && !r.data.packed.includes(id);
+  return r.roles[id] === HUNT[r.game].role;
+}
+
+// Hiders still in play (found hiders are out; squeezed-in sardines hide with the sardine).
+export function remainingHiders(r) {
+  if (!r?.hunt) return [];
+  if (r.game === 'zombie_tag') return r.participants.filter((id) => !r.data.zombies.includes(id));
+  if (r.game === 'sardines') return r.participants.filter((id) => r.roles[id] === 'sardine' || r.data.packed.includes(id));
+  return r.participants.filter((id) => r.roles[id] === 'hider' && !r.data.found?.[id]);
+}
+
+const zoneOutside = (r, id) => !!(r.zoneOuts[id] || r.zoneRevealed[id]);
+
+// Applies the boundary rule to one player's last known position. Returns true if it changed.
+function checkSide(s, id, now) {
+  const r = s.round;
+  const pos = s.secret.host.pos[id];
+  if (!pos) return false;
+  const was = zoneOutside(r, id);
+  const out = zoneSide(r.zone, pos, now, was) === 'out';
+  if (out === was) return false;
+  if (out) r.zoneOuts[id] = now + ZONE_GRACE;
+  else {
+    delete r.zoneOuts[id];
+    delete r.zoneRevealed[id];
+  }
+  return true;
+}
+
+const bandFor = (d) => HEARTBEAT_BANDS.find((b) => d <= b) || null;
+
+// Nearest-hunter proximity band for every hider (secret). Returns true if any band changed.
+function updateHeartbeat(s) {
+  const r = s.round;
+  const h = s.secret.host;
+  const hunters = r.participants.filter((id) => isHunter(r, id) && h.pos[id]);
+  const next = {};
+  remainingHiders(r).forEach((id) => {
+    if (!h.pos[id]) return;
+    const d = Math.min(Infinity, ...hunters.map((hid) => haversine(h.pos[id], h.pos[hid])));
+    const band = bandFor(d);
+    if (band) next[id] = band;
+  });
+  const changed = JSON.stringify(next) !== JSON.stringify(h.hb);
+  h.hb = next;
+  return changed;
+}
+
+function claimDrop(s, id, now) {
+  const r = s.round;
+  const h = s.secret.host;
+  if (!r.drop || r.drop.claimedBy || !remainingHiders(r).includes(id) || haversine(h.pos[id], r.drop) > DROP_RADIUS) return false;
+  r.drop.claimedBy = id;
+  r.drop.claimedAt = now;
+  r.xpAdj[id] = (r.xpAdj[id] || 0) + XP.supplyDrop;
+  h.ghost[id] = true; // invisible to the next radar ping
+  return true;
+}
+
+// A decoy blip 35 m from the hider on a random bearing, kept inside the zone so it
+// can't give itself away (a real hider outside would already be revealed).
+function fakeBlip(s, id, now) {
+  const r = s.round;
+  const from = s.secret.host.pos[id] || r.zone.center;
+  const limit = zoneRadius(r.zone, now) - 3;
+  let p = null;
+  for (let i = 0; i < 24 && !p; i += 1) {
+    const c = destination(from, DECOY_OFFSET, Math.random() * 360);
+    if (haversine(r.zone.center, c) <= limit) p = c;
+  }
+  if (!p) p = destination(from, DECOY_OFFSET, bearing(from, r.zone.center));
+  return { id, lat: round6(p.lat), lng: round6(p.lng) };
+}
+
+function addTrail(h, id, p) {
+  const t = (h.trails[id] = h.trails[id] || []);
+  const last = t[t.length - 1];
+  if (last && haversine({ lat: last[0], lng: last[1] }, p) < 4 && p.at - last[2] < 15000) return;
+  t.push([round6(p.lat), round6(p.lng), p.at]);
+  if (t.length > 600) h.trails[id] = t.filter((_, i) => i % 2 === 0 || i === t.length - 1);
+}
+
+const thin = (pts, max) => (pts.length <= max ? pts : pts.filter((_, i) => i % Math.ceil(pts.length / max) === 0 || i === pts.length - 1));
+
+// Host clock work for the zone: countdowns, the closing ring, radar expiry, the supply drop.
+function zoneTick(s, now) {
+  const r = s.round;
+  const h = s.secret.host;
+  let changed = false;
+  r.participants.forEach((id) => {
+    if (checkSide(s, id, now)) changed = true;
+  });
+  Object.entries(r.zoneOuts).forEach(([id, deadline]) => {
+    if (now < deadline) return;
+    delete r.zoneOuts[id];
+    r.zoneRevealed[id] = now;
+    r.xpAdj[id] = (r.xpAdj[id] || 0) + XP.zoneOut;
+    const p = h.pos[id];
+    h.outLog.push({ id, at: now, lat: p?.lat ?? null, lng: p?.lng ?? null });
+    changed = true;
+  });
+  if (h.scan && now >= h.scan.until) {
+    h.scan = null;
+    changed = true;
+  }
+  if (r.hunt) {
+    if (!r.drop && now >= r.dropAt) {
+      const p = randomInCircle(r.zone.center, zoneRadius(r.zone, now) * 0.6);
+      r.drop = { lat: round6(p.lat), lng: round6(p.lng), at: now, claimedBy: null };
+      changed = true;
+    }
+    if (updateHeartbeat(s)) changed = true;
+  }
+  return changed;
+}
 
 /* ------------------------------- round setup ----------------------------- */
 
@@ -201,6 +358,12 @@ function startRound(s, now) {
       return false;
   }
 
+  const z = s.settings.zone;
+  const zoned = ZONE_ARENAS.includes(s.settings.arena) && z?.on && validPoint(z.center);
+  const endsAt = startsAt + duration * 1000;
+  const playFrom = startsAt + (game.hideMs || 0);
+  if (zoned) secret.host = { ...secret.host, pos: {}, trails: {}, hb: {}, decoys: {}, ghost: {}, ghostUsed: {}, scan: null, radarLog: [], outLog: [] };
+
   s.round = {
     n: (s.round?.n || 0) + 1,
     spinId: rid(),
@@ -211,13 +374,24 @@ function startRound(s, now) {
     arena: s.settings.arena,
     location: s.settings.location.trim(),
     startsAt,
-    endsAt: startsAt + duration * 1000,
+    endsAt,
     participants: ids,
     roles,
     data,
     violations: {}, // live Snitch Protocol alarms: id -> { reason, at }
     strikes: {}, // violations per player this round
     noiseAt: {},
+    ...(zoned && {
+      zone: { center: z.center, radius: z.radius, shrink: z.shrink, sim: z.sim, shrinkStart: Math.max(playFrom, endsAt - SHRINK_WINDOW) },
+      hunt: !!HUNT[game.id],
+      zoneOuts: {}, // id -> server time the 10 s countdown hits zero
+      zoneRevealed: {}, // id -> when their live position went public
+      xpAdj: {}, // radar costs, out-of-bounds penalties, supply drop bonus
+      radarUses: {},
+      radar: [], // public radar alerts (no positions)
+      drop: null,
+      dropAt: playFrom + Math.round((endsAt - playFrom) / 2),
+    }),
   };
   s.secret = secret;
   s.results = null;
@@ -474,6 +648,25 @@ function finish(s, now, outcome) {
   Object.entries(r.strikes || {}).forEach(([id, n]) => add(id, n * XP.strike));
   reveal.strikes = r.strikes || {};
 
+  // GPS Playzone: radar costs, out-of-bounds penalties and the supply drop, plus the post-match map.
+  if (r.zone) {
+    const h = s.secret.host;
+    Object.entries(r.xpAdj).forEach(([id, n]) => add(id, n));
+    reveal.zone = {
+      center: r.zone.center,
+      radius: r.zone.radius,
+      finalRadius: Math.round(zoneRadius(r.zone, Math.min(now, r.endsAt))),
+      shrink: r.zone.shrink,
+      hunt: r.hunt,
+      hunters: r.hunt ? r.participants.filter((id) => r.roles[id] === HUNT[r.game].role) : [],
+      trails: Object.fromEntries(Object.entries(h.trails).map(([id, t]) => [id, thin(t, 120).map(([la, ln]) => [la, ln])])),
+      radar: h.radarLog,
+      drop: r.drop,
+      outs: h.outLog,
+      adj: r.xpAdj,
+    };
+  }
+
   const before = dnaInfo(s.dna);
   const style = ARENAS[r.arena].style;
   s.dna.completed += 1;
@@ -570,6 +763,15 @@ export function reduce(prev, actorId, a, now = Date.now()) {
       if (a.mode === 'random' || a.mode === 'manual') next.mode = a.mode;
       if (a.game && GAMES[a.game]) next.game = a.game;
       if ('starter' in a) next.starter = a.starter || null;
+      if (a.arena && a.arena !== s.settings.arena && DEFAULT_RADIUS[a.arena]) next.zone = { ...next.zone, radius: DEFAULT_RADIUS[a.arena] };
+      if (a.zone && typeof a.zone === 'object') {
+        const z = { ...next.zone };
+        ['on', 'shrink', 'sim'].forEach((k) => typeof a.zone[k] === 'boolean' && (z[k] = a.zone[k]));
+        if (ZONE_RADII.some((o) => o.m === a.zone.radius)) z.radius = a.zone.radius;
+        if (a.zone.center === null) z.center = null;
+        else if (validPoint(a.zone.center)) z.center = { lat: round6(a.zone.center.lat), lng: round6(a.zone.center.lng) };
+        next.zone = z;
+      }
       s.settings = next;
       break;
     }
@@ -587,16 +789,16 @@ export function reduce(prev, actorId, a, now = Date.now()) {
     /* ---- shared ---- */
     case 'tick': {
       if (!r || s.phase !== 'round') return prev;
+      const zoneChanged = r.zone && now >= r.startsAt ? zoneTick(s, now) : false;
+      const nextLava = r.game === 'floor_lava' ? s.secret.host.lavaTimes.find((t) => t > (r.data.lava?.at || 0)) : null;
       if (r.game === 'hot_potato' && (now >= s.secret.host.explodeAt || now >= r.endsAt)) {
         r.data.exploded = r.data.holder;
         finish(s, now, 'exploded');
       } else if (now >= r.endsAt) {
         endPlay(s, now, 'time');
-      } else if (r.game === 'floor_lava') {
-        const next = s.secret.host.lavaTimes.find((t) => t > (r.data.lava?.at || 0));
-        if (!next || now < next - 6000) return prev;
-        r.data.lava = { n: (r.data.lava?.n || 0) + 1, at: next };
-      } else return prev;
+      } else if (nextLava && now >= nextLava - 6000) {
+        r.data.lava = { n: (r.data.lava?.n || 0) + 1, at: nextLava };
+      } else if (!zoneChanged) return prev;
       break;
     }
     case 'end': {
@@ -794,6 +996,69 @@ export function reduce(prev, actorId, a, now = Date.now()) {
       break;
     }
 
+    /* ---- GPS Playzone ---- */
+    case 'pos': {
+      if (s.phase !== 'round' || !r.zone || !isPlayer) return prev;
+      const p = { lat: Number(a.lat), lng: Number(a.lng), acc: Math.min(9999, Math.round(Number(a.acc) || 0)), at: now };
+      if (!validPoint(p)) return prev;
+      const h = s.secret.host;
+      h.pos[actorId] = p;
+      addTrail(h, actorId, p);
+      let visible = false;
+      if (now >= r.startsAt) {
+        visible = checkSide(s, actorId, now);
+        if (r.hunt) {
+          if (updateHeartbeat(s)) visible = true;
+          if (claimDrop(s, actorId, now)) visible = true;
+        }
+      }
+      // Revealed players stream their pin; everything else is host-only bookkeeping.
+      if (!visible && !r.zoneRevealed[actorId]) s.quiet = true;
+      break;
+    }
+    case 'uavRadar': {
+      if (!inPlay || !r.hunt || !isHunter(r, actorId) || now < (r.data.hideUntil || 0)) return prev;
+      const h = s.secret.host;
+      const used = r.radarUses[actorId] || 0;
+      if (used >= RADAR_USES || (h.scan && now < h.scan.until)) return prev;
+      const id = rid();
+      const blips = [];
+      const decoys = [];
+      remainingHiders(r).forEach((hid) => {
+        if (h.ghost[hid]) {
+          delete h.ghost[hid];
+          h.ghostUsed[hid] = id;
+        } else if (h.pos[hid]) blips.push({ id: hid, lat: h.pos[hid].lat, lng: h.pos[hid].lng });
+      });
+      Object.keys(h.decoys).forEach((hid) => {
+        if (h.decoys[hid] !== 'armed') return;
+        h.decoys[hid] = 'used';
+        decoys.push(hid);
+        blips.push(fakeBlip(s, hid, now));
+      });
+      r.radarUses[actorId] = used + 1;
+      r.xpAdj[actorId] = (r.xpAdj[actorId] || 0) + XP.radarPing;
+      r.radar.push({ id, by: actorId, at: now, until: now + RADAR_MS });
+      h.scan = { id, kind: 'radar', by: actorId, at: now, until: now + RADAR_MS, blips: shuffle(blips) };
+      const me = h.pos[actorId];
+      h.radarLog.push({ id, by: actorId, at: now, lat: me?.lat ?? null, lng: me?.lng ?? null, seen: blips.length - decoys.length, decoys });
+      break;
+    }
+    case 'decoy': {
+      if (!inPlay || !r.hunt || !remainingHiders(r).includes(actorId)) return prev;
+      const h = s.secret.host;
+      if (h.decoys[actorId]) return prev;
+      const pingsLeft = r.participants.some((id) => isHunter(r, id) && (r.radarUses[id] || 0) < RADAR_USES);
+      if (pingsLeft || (h.scan && now < h.scan.until)) h.decoys[actorId] = 'armed';
+      else {
+        // No radar left to ride on: the fake signal goes straight to the hunters' map.
+        h.decoys[actorId] = 'used';
+        h.scan = { id: rid(), kind: 'signal', at: now, until: now + RADAR_MS, blips: [fakeBlip(s, actorId, now)] };
+        h.radarLog.push({ id: h.scan.id, by: null, at: now, lat: null, lng: null, seen: 0, decoys: [actorId] });
+      }
+      break;
+    }
+
     default:
       return prev;
   }
@@ -801,8 +1066,31 @@ export function reduce(prev, actorId, a, now = Date.now()) {
   return s;
 }
 
+// Per-phone GPS intel: hunters see radar blips and revealed pins, hiders get the heartbeat.
+function intelFor(s, viewerId, now) {
+  const r = s.round;
+  const h = s.secret?.host;
+  if (s.phase !== 'round' || !r?.zone || !h?.pos) return null;
+  const hunter = isHunter(r, viewerId);
+  const hiding = remainingHiders(r).includes(viewerId);
+  const intel = {
+    // Out-of-bounds players stream their position to the other side (to everyone outside hunts).
+    reveals: Object.keys(r.zoneRevealed)
+      .filter((id) => id !== viewerId && h.pos[id] && (!r.hunt || isHunter(r, id) !== hunter))
+      .map((id) => ({ id, lat: h.pos[id].lat, lng: h.pos[id].lng, at: h.pos[id].at })),
+  };
+  if (hunter && h.scan && now < h.scan.until) intel.scan = h.scan;
+  if (hiding) {
+    intel.hb = h.hb[viewerId] || null;
+    intel.ghost = !!h.ghost[viewerId];
+    intel.ghostUsed = h.ghostUsed[viewerId] || null;
+    intel.decoy = h.decoys[viewerId] || 'ready';
+  }
+  return intel;
+}
+
 // What one phone may see: public state + only its own secret slice.
 export function viewFor(s, viewerId, now = Date.now()) {
   const { secret, ...pub } = s;
-  return { ...pub, now, me: viewerId, mine: secret?.players?.[viewerId] || null };
+  return { ...pub, now, me: viewerId, mine: secret?.players?.[viewerId] || null, intel: intelFor(s, viewerId, now) };
 }

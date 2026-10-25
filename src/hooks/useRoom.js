@@ -104,7 +104,9 @@ export function useRoom(profile, onProfileUpdate) {
       h.media.clear();
       setMedia({});
     }
-    const record = { hostId: me.id, dna: next.dna, scores: next.scores, settings: { ...next.settings, starter: null } };
+    // The GPS zone centre is the host's exact position: never persisted (it's re-locked each session).
+    const zone = next.settings.zone && { ...next.settings.zone, center: null, sim: false };
+    const record = { hostId: me.id, dna: next.dna, scores: next.scores, settings: { ...next.settings, starter: null, zone } };
     if (next.results && next.results.roundKey !== prev.results?.roundKey) {
       const r = next.round;
       saveRoom(next.code, record);
@@ -138,9 +140,13 @@ export function useRoom(profile, onProfileUpdate) {
       const next = reduce(h.game, actorId, action);
       if (next === h.game) return;
       const prev = h.game;
+      // Host-only bookkeeping (GPS fixes nobody else can see) skips the broadcast;
+      // the 3 s heartbeat still carries it.
+      const quiet = next.quiet;
+      delete next.quiet;
       h.game = next;
       persist(prev, next);
-      broadcast();
+      if (!quiet) broadcast();
     },
     [broadcast, persist]
   );

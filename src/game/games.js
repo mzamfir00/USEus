@@ -3,12 +3,39 @@
 export const ARENAS = {
   indoor: { id: 'indoor', label: 'Indoor', full: 'Indoor / Apartment', style: 'auteur', missionCategory: 'creator' },
   park: { id: 'park', label: 'Park', full: 'Park / Outdoors', style: 'dossier', missionCategory: 'streets' },
+  forest: { id: 'forest', label: 'Forest', full: 'Forest / Trail', style: 'dossier', missionCategory: 'streets' },
   supermarket: { id: 'supermarket', label: 'Supermarket', full: 'Supermarket / Mall', style: 'auteur', missionCategory: 'supermarket' },
   streets: { id: 'streets', label: 'City Streets', full: 'City Streets', style: 'dossier', missionCategory: 'streets' },
   roadtrip: { id: 'roadtrip', label: 'Roadtrip', full: 'Roadtrip / Spot', style: 'kinetic', missionCategory: 'roadtrip' },
 };
 
 const ALL = Object.keys(ARENAS);
+
+/* ------------------------------ GPS Playzone ------------------------------ */
+
+// Big outdoor spaces get a live GPS boundary, a tactical radar and supply drops.
+export const ZONE_ARENAS = ['park', 'forest', 'supermarket', 'streets'];
+
+export const ZONE_RADII = [
+  { m: 30, label: 'Compact' },
+  { m: 75, label: 'Mall / Plaza' },
+  { m: 150, label: 'Park / Forest' },
+  { m: 300, label: 'Urban Sector' },
+];
+export const DEFAULT_RADIUS = { park: 150, forest: 150, supermarket: 75, streets: 300 };
+
+export const RADAR_USES = 2; // per hunter, per round
+export const RADAR_MS = 3000; // how long a radar ping exposes the hiders
+export const DECOY_OFFSET = 35; // metres between a hider and their fake blip
+export const DROP_RADIUS = 8; // metres to claim the supply drop
+export const HEARTBEAT_BANDS = [5, 10, 20]; // hunter proximity bands on the hider HUD
+
+// Which roles hunt and which hide, for the radar, decoys, heartbeat and supply drop.
+export const HUNT = {
+  hide_seek: { role: 'seeker', hunter: 'Seeker', hiders: 'hiders' },
+  sardines: { role: 'hunter', hunter: 'Hunter', hiders: 'the sardines' },
+  zombie_tag: { role: 'zombie', hunter: 'Zombie', hiders: 'survivors' },
+};
 
 export const GAMES = {
   blind_sonar: {
@@ -17,7 +44,7 @@ export const GAMES = {
     film: ['survivor'], // roles under the Snitch Protocol
     name: 'Blind Sonar',
     tagline: 'One blind hunter. Everyone else films — and beeps.',
-    arenas: ['indoor', 'park'],
+    arenas: ['indoor', 'park', 'forest'],
     min: 2,
     duration: 180,
     starter: 'Blind Hunter',
@@ -73,7 +100,7 @@ export const GAMES = {
     film: ['runner'], // roles under the Snitch Protocol
     name: 'Red Light Freeze Cam',
     tagline: 'Move on green. Freeze on red. Your phone can tell.',
-    arenas: ['park', 'indoor', 'roadtrip', 'streets'],
+    arenas: ['park', 'forest', 'indoor', 'roadtrip', 'streets'],
     min: 2,
     duration: 180,
     starter: 'Watcher',
@@ -120,7 +147,7 @@ export const GAMES = {
     film: ['hider'],
     name: 'Hide & Seek: Snitch Cam',
     tagline: 'Hiders must keep filming. Pocket the phone and it screams.',
-    arenas: ['indoor', 'park'],
+    arenas: ['indoor', 'park', 'forest', 'supermarket', 'streets'],
     min: 2,
     duration: 300,
     hideMs: 30000,
@@ -128,7 +155,7 @@ export const GAMES = {
     roles: {
       seeker: {
         label: 'Seeker',
-        brief: 'Eyes closed: your phone counts 30 seconds. Then hunt with your camera — flashlight, flash pulse and 3 radar pulses that make every hider’s phone beep.',
+        brief: 'Eyes closed: your phone counts 30 seconds. Then hunt with your camera — flashlight, flash pulse and 3 sound pings that make every hider’s phone beep.',
       },
       hider: {
         label: 'Hider',
@@ -142,7 +169,7 @@ export const GAMES = {
     film: ['sardine', 'hunter'],
     name: 'Sardines',
     tagline: 'One hides. Find them, squeeze in, keep silent.',
-    arenas: ['indoor', 'park'],
+    arenas: ['indoor', 'park', 'forest', 'supermarket', 'streets'],
     min: 3,
     duration: 300,
     hideMs: 45000,
@@ -158,7 +185,7 @@ export const GAMES = {
     film: ['player'],
     name: 'The Floor Is Lava',
     tagline: 'When the siren hits zero: feet up, camera down.',
-    arenas: ['indoor', 'park'],
+    arenas: ['indoor', 'park', 'forest'],
     min: 2,
     duration: 150,
     roles: {
@@ -171,7 +198,7 @@ export const GAMES = {
     film: ['survivor'],
     name: 'Infected: Zombie Tag',
     tagline: 'Patient Zero strobes. Get tagged, join the horde.',
-    arenas: ['park', 'indoor'],
+    arenas: ['park', 'forest', 'indoor', 'streets'],
     min: 3,
     duration: 240,
     starter: 'Patient Zero',
@@ -186,7 +213,7 @@ export const GAMES = {
     film: ['polo'],
     name: 'Marco Polo: Flash Edition',
     tagline: 'Marco calls — every hider’s phone answers POLO and flashes.',
-    arenas: ['indoor', 'park'],
+    arenas: ['indoor', 'park', 'forest'],
     min: 2,
     duration: 240,
     starter: 'Marco',
@@ -205,6 +232,7 @@ export const gamesFor = (arena, playerCount) =>
 export const PRODUCTS = {
   indoor: ['a single lonely sock', 'the TV remote', 'a houseplant', 'a wooden spoon', 'a throw pillow'],
   park: ['a perfectly average pinecone', 'a heroic stick', 'a park bench', 'a fallen leaf', 'a smooth rock'],
+  forest: ['a suspiciously perfect mushroom', 'the mossiest log in the woods', 'a walking stick of destiny', 'fresh forest air (in a jar)', 'a pinecone with attitude'],
   supermarket: ['the weirdest vegetable in this aisle', 'the cheapest cereal on the shelf', 'a mystery can with no label', 'bubble wrap', 'a family-size bag of air (chips)'],
   streets: ['a bus stop', 'the nearest lamppost', 'a city pigeon (from a respectful distance)', 'a crosswalk button', 'a very ordinary bin'],
   roadtrip: ['a gas station snack', 'the car air freshener', 'a crumpled receipt', 'the cup holder', 'a travel neck pillow'],
@@ -323,4 +351,7 @@ export const XP = {
   marcoAll: 200,
   poloSurvive: 300,
   poloTagged: 50,
+  radarPing: -150, // GPS Playzone: hunter radar ping
+  zoneOut: -200, // GPS Playzone: 10 s outside the zone
+  supplyDrop: 300, // GPS Playzone: first hider to the drop
 };

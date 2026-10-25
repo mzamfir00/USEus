@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Check, Radar, Skull } from 'lucide-react';
+import { Check, Skull, Volume2 } from 'lucide-react';
 import { XP } from '../../game/games';
 import { cameraPointingDown, subscribeMotion } from '../../lib/motion';
 import { buzz, speak, Synth } from '../../lib/sound';
@@ -30,7 +30,7 @@ function useNoiseBanner(view, serverNow) {
 function Banner({ children, strong = false }) {
   return (
     <div
-      className={`absolute inset-x-4 top-[max(150px,calc(env(safe-area-inset-top)+136px))] z-10 mr-14 rounded-[18px] px-5 py-3.5 text-center ${
+      className={`absolute inset-x-4 top-[calc(max(150px,calc(env(safe-area-inset-top)+136px))+var(--zone-h,0px))] z-10 mr-14 rounded-[18px] px-5 py-3.5 text-center ${
         strong ? 'bg-white text-black' : 'border border-white/15 bg-black/65 text-white backdrop-blur'
       }`}
     >
@@ -79,7 +79,7 @@ export function HideSeekSeeker({ view, serverNow, intent, onLeave, hud }) {
               }}
               className="btn btn-secondary !border-white/20 !bg-black/60"
             >
-              <Radar size={18} /> {cooling > 0 ? `${Math.ceil(cooling / 1000)}s` : `Radar · ${d.radarLeft}`}
+              <Volume2 size={18} /> {cooling > 0 ? `${Math.ceil(cooling / 1000)}s` : `Ping · ${d.radarLeft}`}
             </button>
             <button type="button" className="btn btn-primary" onClick={() => setPicking(true)}>
               Found someone
@@ -307,7 +307,7 @@ export function FloorLava({ view, serverNow, intent, onLeave, hud }) {
     <GameShell view={view} serverNow={serverNow} roleLabel={`Lava calls ${lava?.n || 0}/${d.total} · safe ${safeCount}`} onLeave={onLeave}>
       <Camera ref={cam} hud={hud} record enforce flash={counting}>
         {counting && (
-          <div className="absolute inset-x-4 top-[max(150px,calc(env(safe-area-inset-top)+136px))] z-10 mr-14 rounded-[22px] bg-white px-5 py-5 text-center text-black">
+          <div className="absolute inset-x-4 top-[calc(max(150px,calc(env(safe-area-inset-top)+136px))+var(--zone-h,0px))] z-10 mr-14 rounded-[22px] bg-white px-5 py-5 text-center text-black">
             <div className="text-[13px] font-semibold uppercase tracking-[0.14em]">The floor is lava in</div>
             <div className="tnum text-[86px] font-bold leading-none tracking-[-0.05em]">{secs}</div>
             <div className="mt-1 text-[14px] font-medium">Both feet up · camera pointing down</div>
