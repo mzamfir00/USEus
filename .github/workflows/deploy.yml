@@ -26,14 +26,23 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
+          # Caching needs a lockfile; skip it when there isn't one.
+          cache: ${{ hashFiles('package-lock.json') != '' && 'npm' || '' }}
 
       - name: Install dependencies
-        run: npm ci
+        run: |
+          if [ -f package-lock.json ]; then
+            npm ci
+          else
+            npm install
+          fi
 
       - name: Configure Pages
         id: pages
         uses: actions/configure-pages@v5
+        with:
+          # Turn Pages on (source: GitHub Actions) if it isn't enabled yet.
+          enablement: true
 
       - name: Build
         run: npm run build
