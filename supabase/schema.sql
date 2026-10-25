@@ -1,11 +1,17 @@
--- USEus — Supabase schema (accounts, friendships, rooms, mission_logs).
+-- USEus — Supabase schema (accounts, friendships, rooms, mission_logs, reports).
 --
 -- Setup: run this file once in the Supabase SQL editor, then add the project URL and
 -- anon key as GitHub repository secrets VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY
 -- (the Pages workflow passes them to the build), or connect from Profile → Cloud database.
 --
+-- Re-run the whole file after updating the app: every statement is idempotent.
+--
 -- Guarantees:
---   * Accounts are permanent: DELETE is revoked and blocked by a trigger.
+--   * Accounts are kept until their owner deletes them in the app (Profile → Delete
+--     Account Permanently). Clients cannot DELETE rows directly: a trigger blocks every
+--     delete except the one performed by delete_account(), which verifies the owner's
+--     login and erases the account, friendships, hosted rooms and their mission logs,
+--     and the username from other rooms' scores and logs.
 --   * Phone, email and username are unique; every account has a phone or an email.
 --   * Every account is 16+ (date of birth checked in the database too).
 --   * pass_hash, phone and email are never readable by clients; logins are verified by
@@ -69,11 +75,26 @@ alter table public.mission_logs add column if not exists game text;
 alter table public.mission_logs add column if not exists location text;
 alter table public.mission_logs alter column mission_id drop not null;
 
--- Permanent retention ---------------------------------------------------------
+create table if not exists public.reports (
+  id bigserial primary key,
+  reporter_id uuid,
+  reporter_username text,
+  reported_id uuid,
+  reported_username text not null,
+  reason text not null check (reason in ('harassment', 'inappropriate', 'cheating', 'underage', 'spam', 'other')),
+  details text check (details is null or char_length(details) <= 500),
+  room_code text,
+  created_at timestamptz not null default now()
+);
+
+-- Owner-only deletion -----------------------------------------------------------
 create or replace function public.block_account_delete() returns trigger
 language plpgsql as $$
 begin
-  raise exception 'USEus accounts are permanent and cannot be deleted';
+  if coalesce(current_setting('useus.deleting', true), '') = 'on' then
+    return old;
+  end if;
+  raise exception 'USEus accounts can only be deleted by their owner from the app';
 end;
 $$;
 
@@ -100,6 +121,7 @@ alter table public.accounts enable row level security;
 alter table public.friendships enable row level security;
 alter table public.rooms enable row level security;
 alter table public.mission_logs enable row level security;
+alter table public.reports enable row level security;
 
 revoke all on public.accounts from anon, authenticated;
 grant select (id, username, name, xp, missions_completed, secret_wins, rounds_played,
@@ -110,6 +132,10 @@ grant select, insert on public.friendships to anon, authenticated;
 grant select, insert, update on public.rooms to anon, authenticated;
 grant select, insert on public.mission_logs to anon, authenticated;
 grant usage, select on sequence public.mission_logs_id_seq to anon, authenticated;
+-- Reports are write-only for clients; moderators read them in the Supabase dashboard.
+revoke all on public.reports from anon, authenticated;
+grant insert on public.reports to anon, authenticated;
+grant usage, select on sequence public.reports_id_seq to anon, authenticated;
 
 drop policy if exists accounts_read on public.accounts;
 drop policy if exists accounts_insert on public.accounts;
@@ -134,6 +160,9 @@ drop policy if exists mission_logs_read on public.mission_logs;
 drop policy if exists mission_logs_insert on public.mission_logs;
 create policy mission_logs_read on public.mission_logs for select using (true);
 create policy mission_logs_insert on public.mission_logs for insert with check (true);
+
+drop policy if exists reports_insert on public.reports;
+create policy reports_insert on public.reports for insert with check (true);
 
 -- RPCs -------------------------------------------------------------------------
 
@@ -175,6 +204,36 @@ language sql security definer set search_path = public as $$
   limit 20;
 $$;
 
+-- In-app "Delete Account Permanently": verifies the owner's login, then erases the
+-- account and everything that identifies it. Returns false when nothing matched.
+create or replace function public.delete_account(p_id uuid, p_identifier text, p_pass_hash text)
+returns boolean
+language plpgsql security definer set search_path = public as $$
+declare
+  v_username text;
+begin
+  select a.username into v_username
+  from public.accounts a
+  where a.id = p_id
+    and (a.phone = p_identifier or a.email = lower(p_identifier))
+    and a.pass_hash = p_pass_hash;
+  if v_username is null then
+    return false;
+  end if;
+
+  perform set_config('useus.deleting', 'on', true);
+  delete from public.friendships where account_id = p_id or friend_id = p_id;
+  delete from public.mission_logs where room_code in (select code from public.rooms where host_id = p_id);
+  delete from public.rooms where host_id = p_id;
+  update public.rooms set scores = scores - v_username where scores ? v_username;
+  update public.mission_logs set players = players - v_username where players ? v_username;
+  delete from public.reports where reporter_id = p_id;
+  delete from public.accounts where id = p_id;
+  return true;
+end;
+$$;
+
 grant execute on function public.login_account(text, text) to anon, authenticated;
+grant execute on function public.delete_account(uuid, text, text) to anon, authenticated;
 grant execute on function public.identity_available(text, text, text) to anon, authenticated;
 grant execute on function public.find_accounts(text) to anon, authenticated;

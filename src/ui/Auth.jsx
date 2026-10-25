@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { ArrowRight, Eye, EyeOff } from 'lucide-react';
 import { ageFromDob, logIn, MIN_AGE, normalizeEmail, normalizePhone, signUp } from '../lib/database';
+import { LegalLinks, LegalSheet } from './Legal';
 import { Sheet } from './primitives';
 
 const COUNTRIES = [
@@ -41,8 +42,9 @@ function Field({ label, children, hint }) {
   );
 }
 
-export default function Auth({ invite, onAuthed }) {
+export default function Auth({ invite, onAuthed, notice }) {
   const [mode, setMode] = useState('signup');
+  const [legal, setLegal] = useState(null);
   const [method, setMethod] = useState('phone');
   const [prefix, setPrefix] = useState(defaultPrefix);
   const [phone, setPhone] = useState('');
@@ -102,12 +104,17 @@ export default function Auth({ invite, onAuthed }) {
     contactReady && password.length >= 4 && (mode === 'login' || (name.trim().length >= 2 && username.length >= 3 && dobIso));
 
   return (
-    <div className="screen mx-auto flex min-h-[100dvh] max-w-md flex-col px-6 pb-10 pt-[max(48px,env(safe-area-inset-top))]">
+    <div className="screen mx-auto flex min-h-[100dvh] max-w-md flex-col px-6 pb-10 pt-[max(48px,var(--safe-top))]">
       <div className="enter">
         <div className="text-[44px] font-bold tracking-[-0.045em]">USEus</div>
         <p className="muted mt-2 text-[16px] leading-snug">
           {invite ? `You're invited to room ${invite}. Sign in to join.` : 'The IRL party game. Every player on their own phone.'}
         </p>
+        {notice && (
+          <div className="mt-5 rounded-[14px] border border-[var(--border)] bg-[var(--card)] px-4 py-3 text-[14px] leading-snug" role="status" data-notice>
+            {notice}
+          </div>
+        )}
       </div>
 
       <div className="segmented mt-10" role="tablist">
@@ -248,9 +255,14 @@ export default function Auth({ invite, onAuthed }) {
           {!busy && <ArrowRight size={18} />}
         </button>
         <p className="muted px-2 text-center text-[12.5px] leading-relaxed">
-          {mode === 'signup' ? 'Your account is permanent — log back in any time with the same details.' : 'Use the phone number or email you signed up with.'}
+          {mode === 'signup'
+            ? 'By creating an account you confirm you are 16 or older and agree to the Terms of Use and Privacy Policy.'
+            : 'Use the phone number or email you signed up with.'}
         </p>
+        <LegalLinks onOpen={setLegal} className="!mt-3" />
       </form>
+
+      {legal && <LegalSheet doc={legal} onClose={() => setLegal(null)} />}
 
       {underage && (
         <Sheet onClose={() => setUnderage(false)}>

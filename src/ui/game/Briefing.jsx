@@ -7,6 +7,7 @@ import { GAMES, HUNT, XP } from '../../game/games';
 import { requestMotion, useMotionMode } from '../../lib/motion';
 import { buzz, Synth } from '../../lib/sound';
 import { Avatar } from '../primitives';
+import SafetyGate from '../Safety';
 import HorrorFx from './HorrorFx';
 
 const nameOf = (view, id) => view.players.find((p) => p.id === id)?.name || 'Someone';
@@ -231,10 +232,20 @@ function ReadyBar({ view, intent }) {
   );
 }
 
+// Outdoor arenas and the dark rituals re-confirm the IRL safety warning every round.
+const safetyNote = (r, g) => {
+  if (r.arena === 'roadtrip') return 'Roadtrip: drivers never play. Passengers only, and only while it is safe.';
+  if (g.dark) return 'This ritual is played in the dark: clear the floor of anything you could trip over and keep away from stairs.';
+  if (r.zone) return `Outdoor Playzone: stay inside the ${r.zone.radius} m boundary and never chase anyone into a road.`;
+  return null;
+};
+
 export default function Briefing({ view, intent }) {
   const r = view.round;
   const info = briefingFor(view);
   const motion = useMotionMode();
+  const risky = info.game.dark || r.arena !== 'indoor';
+  const [agreed, setAgreed] = useState(!risky);
 
   useEffect(() => {
     buzz([40, 30, 40]);
@@ -264,6 +275,7 @@ export default function Briefing({ view, intent }) {
         <RulesSections view={view} setupFirst />
       </div>
       <ReadyBar view={view} intent={intent} />
+      {!agreed && <SafetyGate extra={safetyNote(r, info.game)} onAgree={() => setAgreed(true)} />}
     </div>
   );
 }

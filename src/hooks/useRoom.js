@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { openClient, openHost } from '../lib/net';
 import {
   applyRoundStats,
+  isBlocked,
   loadRoom,
   publicProfile,
   recordMission,
@@ -24,6 +25,7 @@ const ERRORS = {
   'no-room': 'No room with that code is live right now.',
   full: 'That room is full (8 players max).',
   'same-account': 'You are already in this room on another phone.',
+  removed: 'The host removed you from this room.',
   timeout: 'Could not reach the room. Check your connection and try again.',
 };
 
@@ -183,6 +185,11 @@ export function useRoom(profile, onProfileUpdate) {
         const p = msg.player;
         if (p.id === profileRef.current.id) {
           h.bus.send(connId, { t: 'denied', reason: 'same-account' });
+          return;
+        }
+        // Removed by the host, or blocked by the host: not allowed back in.
+        if (h.game.banned?.includes(p.id) || isBlocked(p.username)) {
+          h.bus.send(connId, { t: 'denied', reason: 'removed' });
           return;
         }
         const known = h.game.players.some((x) => x.id === p.id);

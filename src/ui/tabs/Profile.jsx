@@ -1,7 +1,9 @@
 import React, { useState } from 'react';
-import { Check, ChevronRight, Cloud, Lock, LogOut, Volume2 } from 'lucide-react';
+import { Ban, Check, ChevronRight, Cloud, FileText, Lock, LogOut, Shield, Trash2, Volume2 } from 'lucide-react';
 import { DNA_STYLES } from '../../game/constants';
-import { ageFromDob, cloudConfig, setCloudConfig, setTheme, testCloud } from '../../lib/database';
+import { ageFromDob, cloudConfig, deleteAccount, setCloudConfig, setTheme, testCloud } from '../../lib/database';
+import { LegalSheet } from '../Legal';
+import { BlockedSheet, useBlocked } from '../Moderation';
 import { Avatar, ScreenHeader, SectionLabel, Sheet } from '../primitives';
 
 const mask = (account) => {
@@ -62,8 +64,62 @@ function CloudSheet({ onClose }) {
   );
 }
 
-export default function Profile({ account, onAccount, sound, setSound, onSignOut }) {
+// Apple 5.1.1 / Google Play: in-app account deletion, confirmed by typing DELETE.
+function DeleteSheet({ account, onDeleted, onClose }) {
+  const [text, setText] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const armed = text.trim().toUpperCase() === 'DELETE';
+  return (
+    <Sheet title="Delete account" onClose={busy ? () => {} : onClose}>
+      <p className="text-[15px] leading-relaxed">
+        This permanently deletes <b>@{account.username}</b>. It can’t be undone.
+      </p>
+      <ul className="muted mt-3 list-disc space-y-1 pl-5 text-[14px] leading-snug">
+        <li>Your login, profile, XP, stats and match history</li>
+        <li>Your friends list and friendships</li>
+        <li>Rooms you host and their match logs; your name in other rooms’ scores</li>
+        <li>Reports you filed, and everything USEus saved on this phone</li>
+      </ul>
+      <label className="mt-5 block">
+        <span className="text-[13px] font-medium">Type DELETE to confirm</span>
+        <input
+          className="field mt-2 tracking-[0.2em]"
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          placeholder="DELETE"
+          autoCapitalize="characters"
+          autoComplete="off"
+          aria-label="Type DELETE to confirm"
+        />
+      </label>
+      {error && <div className="shake mt-3 text-[13.5px]">{error}</div>}
+      <button
+        type="button"
+        className="btn btn-primary mt-5"
+        disabled={!armed || busy}
+        onClick={async () => {
+          setBusy(true);
+          try {
+            onDeleted(await deleteAccount(account));
+          } catch (e) {
+            setBusy(false);
+            setError('Something went wrong. Try again.');
+          }
+        }}
+      >
+        <Trash2 size={18} /> {busy ? 'Deleting…' : 'Delete Account Permanently'}
+      </button>
+      <button type="button" className="btn btn-ghost mt-1" disabled={busy} onClick={onClose}>
+        Keep my account
+      </button>
+    </Sheet>
+  );
+}
+
+export default function Profile({ account, onAccount, sound, setSound, onSignOut, onDeleted }) {
   const [sheet, setSheet] = useState(null);
+  const blocked = useBlocked();
   const s = account.stats;
   const joined = new Date(account.createdAt).toLocaleDateString([], { month: 'long', year: 'numeric' });
 
@@ -146,14 +202,42 @@ export default function Profile({ account, onAccount, sound, setSound, onSignOut
           <span className="muted text-[14px]">{cloudConfig() ? 'On' : 'Off'}</span>
           <ChevronRight size={18} className="muted" />
         </button>
+        <button type="button" onClick={() => setSheet('blocked')} className="card-press flex w-full items-center gap-3 px-5 py-4 text-left">
+          <Ban size={18} />
+          <span className="flex-1">Blocked players</span>
+          <span className="muted text-[14px]">{Object.keys(blocked).length}</span>
+          <ChevronRight size={18} className="muted" />
+        </button>
+      </div>
+
+      <SectionLabel>Legal</SectionLabel>
+      <div className="card divide overflow-hidden text-[15px]">
+        <button type="button" onClick={() => setSheet('privacy')} className="card-press flex w-full items-center gap-3 px-5 py-4 text-left">
+          <Shield size={18} />
+          <span className="flex-1">Privacy Policy</span>
+          <ChevronRight size={18} className="muted" />
+        </button>
+        <button type="button" onClick={() => setSheet('terms')} className="card-press flex w-full items-center gap-3 px-5 py-4 text-left">
+          <FileText size={18} />
+          <span className="flex-1">Terms of Use (16+)</span>
+          <ChevronRight size={18} className="muted" />
+        </button>
       </div>
 
       <button type="button" onClick={onSignOut} className="btn btn-secondary mt-8">
         <LogOut size={18} /> Sign out
       </button>
-      <p className="muted mt-3 text-center text-[12.5px]">Signing out never deletes your account.</p>
+      <p className="muted mt-3 text-center text-[12.5px]">Signing out keeps your account — log back in any time.</p>
+
+      <button type="button" onClick={() => setSheet('delete')} className="mt-8 flex h-12 w-full items-center justify-center gap-2 rounded-full border border-[var(--border)] text-[14.5px] font-semibold">
+        <Trash2 size={17} /> Delete Account Permanently
+      </button>
+      <div className="h-4" />
 
       {sheet === 'cloud' && <CloudSheet onClose={() => setSheet(null)} />}
+      {sheet === 'blocked' && <BlockedSheet onClose={() => setSheet(null)} />}
+      {(sheet === 'privacy' || sheet === 'terms') && <LegalSheet doc={sheet} onClose={() => setSheet(null)} />}
+      {sheet === 'delete' && <DeleteSheet account={account} onDeleted={onDeleted} onClose={() => setSheet(null)} />}
     </div>
   );
 }

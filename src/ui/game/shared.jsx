@@ -6,6 +6,8 @@ import { Sheet } from '../primitives';
 import { formatTime, useNow } from '../room/helpers';
 import ZoneLayer from './zone/ZoneLayer';
 import { RulesSections } from './Briefing';
+import { PlayerActions } from '../Moderation';
+import { Avatar } from '../primitives';
 
 // Lets the shell send intents (host: end round) without threading props through every game.
 export const IntentContext = createContext(() => {});
@@ -46,6 +48,7 @@ export function GameShell({ view, serverNow, roleLabel, onLeave, children, light
   const intent = useContext(IntentContext);
   const [menu, setMenu] = useState(false);
   const [rules, setRules] = useState(false); // "?" drawer: re-read your briefing without stopping the camera
+  const [actions, setActions] = useState(null); // block / report / remove sheet for one player
   const [zoneStrobe, setZoneStrobe] = useState(false);
   const [zoneRows, setZoneRows] = useState(0); // bottom edge of the GPS Playzone HUD, px from the top
   const isHost = view.hostId === view.me;
@@ -72,11 +75,11 @@ export function GameShell({ view, serverNow, roleLabel, onLeave, children, light
         style={r.zone ? { '--zone-h': `${Math.max(0, zoneRows + 8 - 150)}px`, '--zone-top': `${Math.max(0, zoneRows + 8 - 84)}px` } : undefined}
       >
         <ZoneStrobeContext.Provider value={zoneStrobe}>{children}</ZoneStrobeContext.Provider>
-        <div className="pointer-events-none absolute inset-x-0 top-0 z-20 flex items-center gap-3 px-4 pt-[max(14px,env(safe-area-inset-top))]">
+        <div className="pointer-events-none absolute inset-x-0 top-0 z-20 flex items-center gap-3 px-4 pt-[max(14px,var(--safe-top))]">
           <button
             type="button"
-            aria-label={isHost ? 'Round menu' : 'Leave room'}
-            onClick={() => (isHost ? setMenu(true) : window.confirm('Leave this room?') && onLeave())}
+            aria-label={isHost ? 'Round menu' : 'Room menu'}
+            onClick={() => setMenu(true)}
             className={`pointer-events-auto grid h-10 w-10 place-items-center rounded-full border backdrop-blur ${chip}`}
           >
             <X size={17} />
@@ -98,7 +101,7 @@ export function GameShell({ view, serverNow, roleLabel, onLeave, children, light
           </ZoneLayer>
         ) : (
           alarms.length > 0 && (
-            <div className="pointer-events-none absolute inset-x-4 top-[max(66px,calc(env(safe-area-inset-top)+54px))] z-[25] space-y-1.5">
+            <div className="pointer-events-none absolute inset-x-4 top-[max(66px,calc(var(--safe-top)+54px))] z-[25] space-y-1.5">
               {alarms.map((id) => (
                 <AlarmBanner key={id} view={view} id={id} />
               ))}
@@ -120,22 +123,52 @@ export function GameShell({ view, serverNow, roleLabel, onLeave, children, light
       )}
       {menu && (
         <div className="text-[var(--fg)]">
-          <Sheet title="Host controls" onClose={() => setMenu(false)}>
+          <Sheet title={isHost ? 'Host controls' : 'Room'} onClose={() => setMenu(false)}>
+            {isHost && (
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={() => {
+                  setMenu(false);
+                  intent({ type: 'end' });
+                }}
+              >
+                End round now
+              </button>
+            )}
+            <div className="eyebrow mb-2 mt-5">Players · {isHost ? 'remove, block or report' : 'block or report'}</div>
+            <div className="card divide overflow-hidden">
+              {view.players
+                .filter((p) => p.id !== view.me)
+                .map((p) => (
+                  <button key={p.id} type="button" className="card-press flex w-full items-center gap-3 px-4 py-3 text-left" onClick={() => setActions(p)} aria-label={`Player options for ${p.name}`}>
+                    <Avatar name={p.name} size={32} />
+                    <span className="min-w-0 flex-1 truncate text-[15px] font-semibold">{p.name}</span>
+                    <span className="muted text-[12.5px]">{p.blocked ? 'Blocked' : `@${p.username}`}</span>
+                  </button>
+                ))}
+            </div>
             <button
               type="button"
-              className="btn btn-primary"
-              onClick={() => {
-                setMenu(false);
-                intent({ type: 'end' });
-              }}
+              className="btn btn-secondary mt-5"
+              onClick={() => window.confirm(isHost ? 'Leaving closes the room for everyone. Leave?' : 'Leave this room?') && onLeave()}
             >
-              End round now
-            </button>
-            <button type="button" className="btn btn-secondary mt-3" onClick={() => window.confirm('Leaving closes the room for everyone. Leave?') && onLeave()}>
               Leave room
             </button>
           </Sheet>
         </div>
+      )}
+      {actions && (
+        <PlayerActions
+          player={actions}
+          reporter={view.players.find((p) => p.id === view.me)}
+          room={view.code}
+          onRemove={isHost && actions.id !== view.hostId ? (p) => intent({ type: 'remove', id: p.id }) : null}
+          onClose={() => {
+            setActions(null);
+            setMenu(false);
+          }}
+        />
       )}
     </div>
   );

@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Check, Search, UserPlus, Users } from 'lucide-react';
 import { addFriend, isCloud, knownPlayers, profilesFor, searchPeople } from '../../lib/database';
+import { useBlocked } from '../Moderation';
 import { Avatar, Empty, ScreenHeader, SectionLabel } from '../primitives';
 
 function PersonRow({ person, isFriend, onAdd }) {
@@ -30,6 +31,8 @@ export default function Squad({ account, onAccount }) {
   const [searching, setSearching] = useState(false);
   const [friends, setFriends] = useState([]);
   const friendIds = account.friends || [];
+  const blocked = useBlocked(); // blocked players never show up here
+  const visible = (p) => !blocked[p.username];
 
   useEffect(() => {
     profilesFor(friendIds).then(setFriends);
@@ -49,7 +52,9 @@ export default function Squad({ account, onAccount }) {
   }, [query, account]);
 
   const add = async (person) => onAccount(await addFriend(account, person));
-  const suggestions = knownPlayers().filter((p) => !friendIds.includes(p.id) && p.id !== account.id).slice(0, 6);
+  const suggestions = knownPlayers()
+    .filter((p) => !friendIds.includes(p.id) && p.id !== account.id && visible(p))
+    .slice(0, 6);
 
   return (
     <div className="enter">
@@ -71,7 +76,7 @@ export default function Squad({ account, onAccount }) {
           <SectionLabel>{searching ? 'Searching…' : `${results.length} result${results.length === 1 ? '' : 's'}`}</SectionLabel>
           {results.length > 0 ? (
             <div className="card divide overflow-hidden">
-              {results.map((p) => (
+              {results.filter(visible).map((p) => (
                 <PersonRow key={p.id} person={p} isFriend={friendIds.includes(p.id)} onAdd={add} />
               ))}
             </div>
@@ -90,7 +95,7 @@ export default function Squad({ account, onAccount }) {
           <SectionLabel>Friends{friends.length ? ` · ${friends.length}` : ''}</SectionLabel>
           {friends.length > 0 ? (
             <div className="card divide overflow-hidden">
-              {friends.map((p) => (
+              {friends.filter(visible).map((p) => (
                 <PersonRow key={p.id} person={p} isFriend />
               ))}
             </div>

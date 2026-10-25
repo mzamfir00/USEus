@@ -113,6 +113,7 @@ export function createRoom({ code, host, saved }) {
     secret: null,
     results: null,
     lastGames: [],
+    banned: [], // players the host removed: they can't rejoin this room
     dna: saved?.dna || emptyDNA(),
     scores,
     seq: 0,
@@ -973,6 +974,7 @@ export function reduce(prev, actorId, a, now = Date.now()) {
   switch (a.type) {
     /* ---- roster ---- */
     case 'join': {
+      if ((s.banned || []).includes(a.player.id)) return prev;
       const existing = find(a.player.id);
       if (existing) Object.assign(existing, a.player, { connected: true });
       else {
@@ -999,6 +1001,7 @@ export function reduce(prev, actorId, a, now = Date.now()) {
     case 'remove': {
       if (!isHost || a.id === s.hostId) return prev;
       s.players = s.players.filter((p) => p.id !== a.id);
+      s.banned = [...new Set([...(s.banned || []), a.id])];
       maybeArm(s, now);
       break;
     }

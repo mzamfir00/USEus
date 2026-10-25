@@ -61,7 +61,7 @@ export default function HotPotato({ view, serverNow, intent, onLeave }) {
   return (
     <GameShell view={view} serverNow={serverNow} roleLabel="You’re holding the bomb" onLeave={onLeave}>
       <div className="absolute inset-0" style={{ animation: `blink ${pulse}s steps(2) infinite`, background: '#fff', opacity: 0.18 }} />
-      <div className="absolute inset-0 flex flex-col px-6 pb-[calc(20px+var(--safe-bottom))] pt-[max(92px,calc(env(safe-area-inset-top)+80px))]">
+      <div className="absolute inset-0 flex flex-col px-6 pb-[calc(20px+var(--safe-bottom))] pt-[max(92px,calc(var(--safe-top)+80px))]">
         <div className="text-center">
           <Bomb size={64} strokeWidth={1.6} className="mx-auto" />
           <div className="mt-3 text-[15px] font-medium text-white/60">Do the dare, then pass it</div>

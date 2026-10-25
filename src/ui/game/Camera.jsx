@@ -671,7 +671,7 @@ const Camera = forwardRef(function Camera(
       {glow && !screenLight && <div className="pointer-events-none absolute inset-0 z-[5]" style={{ boxShadow: 'inset 0 0 0 16vmin rgba(255,255,255,0.16)' }} />}
       {screenFlash && <div className="pointer-events-none absolute inset-0 z-30 bg-white" />}
 
-      <div className="absolute right-4 top-[calc(max(150px,calc(env(safe-area-inset-top)+136px))+var(--zone-h,0px))] z-10 flex flex-col items-center gap-2">
+      <div className="absolute right-4 top-[calc(max(150px,calc(var(--safe-top)+136px))+var(--zone-h,0px))] z-10 flex flex-col items-center gap-2">
         {status === 'live' && !lockFacing && (
           <CtlButton label="Flip camera" onClick={() => setFacing((f) => (f === 'user' ? 'environment' : 'user'))}>
             <SwitchCamera size={18} />
@@ -745,7 +745,7 @@ const Camera = forwardRef(function Camera(
       )}
 
       {warning !== null && !penalty && (
-        <div className="absolute inset-x-4 top-[calc(max(150px,calc(env(safe-area-inset-top)+136px))+var(--zone-h,0px))] z-30 mr-14 rounded-[18px] bg-white px-5 py-4 text-center text-black">
+        <div className="absolute inset-x-4 top-[calc(max(150px,calc(var(--safe-top)+136px))+var(--zone-h,0px))] z-30 mr-14 rounded-[18px] bg-white px-5 py-4 text-center text-black">
           <div className="text-[13px] font-semibold">Camera blocked / not filming</div>
           <div className="mt-1 text-[22px] font-bold leading-tight tracking-[-0.02em]">Resume in {warning}…</div>
           <div className="mt-1 text-[12.5px] text-black/60">Uncover the lens or the alarm goes off</div>

@@ -43,7 +43,7 @@ export function TeleprompterActor({ view, serverNow, onLeave }) {
     <GameShell view={view} serverNow={serverNow} roleLabel={`Actor · selling ${view.round.data.product}`} onLeave={onLeave}>
       <div className="absolute inset-0 flex flex-col justify-center px-7">
         {inject && (
-          <div className="pop absolute inset-x-5 top-[calc(max(84px,calc(env(safe-area-inset-top)+70px))+var(--zone-top,0px))] rounded-[20px] bg-white px-5 py-4 text-black">
+          <div className="pop absolute inset-x-5 top-[calc(max(84px,calc(var(--safe-top)+70px))+var(--zone-top,0px))] rounded-[20px] bg-white px-5 py-4 text-black">
             <div className="text-[12.5px] font-medium text-black/50">Stage direction from {nameOf(view, inject.by)}</div>
             <div className="mt-1 text-[24px] font-bold leading-tight tracking-[-0.02em]">{inject.text}</div>
           </div>
@@ -114,7 +114,7 @@ export function TeleprompterDirector({ view, serverNow, intent, onLeave, hud }) 
     <GameShell view={view} serverNow={serverNow} roleLabel={`Director · filming ${nameOf(view, actor)}`} onLeave={onLeave}>
       <Camera hud={hud} record micDefault enforce>
         {mirror && (
-          <div className="absolute inset-x-4 top-[calc(max(150px,calc(env(safe-area-inset-top)+136px))+var(--zone-h,0px))] z-10 mr-14 rounded-[16px] border border-white/15 bg-black/65 px-4 py-3 backdrop-blur">
+          <div className="absolute inset-x-4 top-[calc(max(150px,calc(var(--safe-top)+136px))+var(--zone-h,0px))] z-10 mr-14 rounded-[16px] border border-white/15 bg-black/65 px-4 py-3 backdrop-blur">
             <div className="text-[12px] text-white/55">{inject ? 'Direction just sent' : `Teleprompter · line ${Math.min(index + 1, lines.length)}`}</div>
             <div className="mt-0.5 text-[16px] font-semibold leading-snug">{inject ? inject.text : lines[index] || 'Ad-lib the finish — then cut.'}</div>
           </div>
@@ -152,7 +152,7 @@ export function TeleprompterSaboteur({ view, serverNow, intent, onLeave }) {
   const recent = [...view.round.data.injects].reverse().slice(0, 3);
   return (
     <GameShell view={view} serverNow={serverNow} roleLabel={GAMES.teleprompter.roles.saboteur.label} onLeave={onLeave}>
-      <div className="absolute inset-0 overflow-y-auto px-5 pb-10 pt-[max(84px,calc(env(safe-area-inset-top)+72px))]">
+      <div className="absolute inset-0 overflow-y-auto px-5 pb-10 pt-[max(84px,calc(var(--safe-top)+72px))]">
         <div className="card p-4">
           <div className="eyebrow">Actor is reading</div>
           <div className="mt-1 text-[17px] font-semibold leading-snug">{lines[index] || 'The big ad-libbed finish'}</div>

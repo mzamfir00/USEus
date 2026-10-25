@@ -1,7 +1,12 @@
-import React, { useRef } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { X } from 'lucide-react';
+import { onBack } from '../lib/platform';
 
 export function Sheet({ title, onClose, children }) {
+  // Android back button closes the sheet on top.
+  const close = useRef(onClose);
+  close.current = onClose;
+  useEffect(() => onBack(() => close.current?.()), []);
   return (
     <div className="fade fixed inset-0 z-50 flex items-end justify-center bg-black/70" onClick={onClose}>
       <div
@@ -50,7 +55,7 @@ export function Avatar({ name, size = 44, inverted = false }) {
 
 export function ScreenHeader({ title, subtitle, right }) {
   return (
-    <header className="flex items-end justify-between gap-4 pb-6 pt-[max(20px,env(safe-area-inset-top))]">
+    <header className="flex items-end justify-between gap-4 pb-6 pt-[max(20px,var(--safe-top))]">
       <div className="min-w-0">
         {subtitle && <div className="eyebrow mb-1">{subtitle}</div>}
         <h1 className="title">{title}</h1>

@@ -1,10 +1,12 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import QRCode from 'qrcode';
 import { Share2, X } from 'lucide-react';
 import { DNA_STYLES } from '../../game/constants';
 import { dnaInfo } from '../../game/engine';
 import { errorText } from '../../hooks/useRoom';
+import { appUrl } from '../../lib/platform';
 import { buzz, Synth } from '../../lib/sound';
+import { useBlocked } from '../Moderation';
 import { LevelDots, Sheet } from '../primitives';
 import GameScreen, { ReviewScreen } from '../game/GameScreen';
 import Intro from '../game/Intro';
@@ -12,7 +14,7 @@ import { useNow } from './helpers';
 import Lobby from './Lobby';
 import Results from './Results';
 
-export const roomLink = (code) => `${window.location.origin}${import.meta.env.BASE_URL}?room=${code}`;
+export const roomLink = (code) => `${appUrl()}?room=${code}`;
 
 function InviteSheet({ code, onClose }) {
   const [qr, setQr] = useState('');
@@ -125,7 +127,16 @@ function Status({ title, body, busy, onLeave }) {
 }
 
 export default function Room({ room, code, onLeave }) {
-  const { status, view, media, error, serverNow, intent, role } = room;
+  const { status, view: rawView, media, error, serverNow, intent, role } = room;
+  // Players this phone blocked are shown as "Blocked player" everywhere in the room.
+  const blocked = useBlocked();
+  const view = useMemo(() => {
+    if (!rawView || !Object.keys(blocked).length) return rawView;
+    return {
+      ...rawView,
+      players: rawView.players.map((p) => (blocked[p.username] && p.id !== rawView.me ? { ...p, name: 'Blocked player', blocked: true } : p)),
+    };
+  }, [rawView, blocked]);
   const [sheet, setSheet] = useState(null); // invite | dna
   const [evolved, setEvolved] = useState(null);
   useNow(view?.phase === 'round' ? 250 : 5000);
@@ -145,7 +156,7 @@ export default function Room({ room, code, onLeave }) {
 
   return (
     <div className="screen mx-auto flex min-h-[100dvh] max-w-md flex-col px-6">
-      <header className="sticky top-0 z-20 -mx-6 bg-[var(--bg)]/90 px-6 pb-3 pt-[max(14px,env(safe-area-inset-top))] backdrop-blur">
+      <header className="sticky top-0 z-20 -mx-6 bg-[var(--bg)]/90 px-6 pb-3 pt-[max(14px,var(--safe-top))] backdrop-blur">
         <div className="flex items-center gap-3">
           <button type="button" aria-label="Leave room" className="icon-btn" onClick={onLeave}>
             <X size={18} />

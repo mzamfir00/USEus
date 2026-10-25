@@ -1,0 +1,17 @@
+{
+  "appId": "com.useus.game",
+  "appName": "USEus",
+  "webDir": "dist",
+  "backgroundColor": "#000000",
+  "loggingBehavior": "debug",
+  "server": {
+    "androidScheme": "https"
+  },
+  "android": {
+    "allowMixedContent": false
+  },
+  "ios": {
+    "contentInset": "never",
+    "limitsNavigationsToAppBoundDomains": false
+  }
+}

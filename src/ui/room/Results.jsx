@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Download, Radar, Share2, Siren } from 'lucide-react';
 import { ARENAS, GAMES, XP } from '../../game/games';
 import { canShareClip, downloadClip, shareClip, useClips } from '../../lib/clips';
@@ -16,6 +16,9 @@ const initials = (name) =>
     .join('')
     .slice(0, 2)
     .toUpperCase();
+
+// Photos taken by players this phone blocked are never shown.
+const hidden = (view, id) => !!view.players.find((p) => p.id === id)?.blocked;
 
 function Reveal({ view, media }) {
   const res = view.results;
@@ -40,7 +43,7 @@ function Reveal({ view, media }) {
         <div className="noscroll -mx-6 flex gap-3 overflow-x-auto px-6">
           {rv.shots.map((s) => (
             <div key={s.id} className="card w-[150px] shrink-0 overflow-hidden">
-              <div className="aspect-[9/16] bg-black">{media[s.id] && <img src={media[s.id]} alt="" className="h-full w-full object-cover" />}</div>
+              <div className="aspect-[9/16] bg-black">{media[s.id] && !hidden(view, s.by) && <img src={media[s.id]} alt="" className="h-full w-full object-cover" />}</div>
               <div className="p-3 text-[12.5px]">
                 <div className="font-semibold">{s.valid ? 'Clean hit' : 'Spotted'}</div>
                 <div className="muted truncate">
@@ -72,7 +75,7 @@ function Reveal({ view, media }) {
             <div className="noscroll -mx-6 mt-3 flex gap-3 overflow-x-auto px-6">
               {rv.proofs.map((p) => (
                 <div key={p.id} className="card w-[120px] shrink-0 overflow-hidden">
-                  <div className="aspect-[9/16] bg-black">{media[p.id] && <img src={media[p.id]} alt="" className="h-full w-full object-cover" />}</div>
+                  <div className="aspect-[9/16] bg-black">{media[p.id] && !hidden(view, p.by) && <img src={media[p.id]} alt="" className="h-full w-full object-cover" />}</div>
                   <div className="p-2.5 text-[12px]">
                     <div className="font-semibold">{p.safe ? 'Safe' : 'Burned'}</div>
                     <div className="muted truncate">
@@ -124,10 +127,10 @@ function Reveal({ view, media }) {
             {rv.freezes} TOMARE call{rv.freezes === 1 ? '' : 's'}
             {rv.caught.length ? ` · caught: ${rv.caught.map((id) => nameOf(view, id)).join(', ')}` : ''}
           </div>
-          {rv.shots?.some((p) => media[p.id]) && (
+          {rv.shots?.some((p) => media[p.id] && !hidden(view, p.by)) && (
             <div className="noscroll -mx-6 mt-3 flex gap-3 overflow-x-auto px-6">
               {rv.shots
-                .filter((p) => media[p.id])
+                .filter((p) => media[p.id] && !hidden(view, p.by))
                 .map((p) => (
                   <div key={p.id} className="card w-[120px] shrink-0 overflow-hidden">
                     <div className="aspect-[9/16] bg-black">
@@ -249,6 +252,7 @@ function ZoneSummary({ view }) {
 
 function Clips({ roundKey }) {
   const clips = useClips(roundKey);
+  const [note, setNote] = useState('');
   if (!clips.length) return null;
   return (
     <>
@@ -257,25 +261,38 @@ function Clips({ roundKey }) {
         {clips.map((c) => (
           <div key={c.id} className="card overflow-hidden">
             <video src={c.url} controls playsInline className="aspect-[9/16] max-h-[460px] w-full bg-black object-contain" />
-            <div className="flex items-center gap-2 p-3">
-              <div className="min-w-0 flex-1">
-                <div className="truncate text-[14px] font-semibold">{c.title}</div>
-                <div className="muted text-[12.5px]">
-                  {formatTime(c.durationMs)} · {c.mime.includes('mp4') ? 'MP4' : 'WebM'}
-                </div>
+            <div className="p-3">
+              <div className="truncate text-[14px] font-semibold">{c.title}</div>
+              <div className="muted text-[12.5px]">
+                {formatTime(c.durationMs)} · {c.mime.includes('mp4') ? 'MP4' : 'WebM'}
               </div>
-              <button type="button" className="icon-btn" aria-label="Save video" onClick={() => downloadClip(c)}>
-                <Download size={17} />
-              </button>
-              {canShareClip(c) && (
-                <button type="button" className="icon-btn" aria-label="Share video" onClick={() => shareClip(c)}>
-                  <Share2 size={17} />
+              <div className="mt-3 flex gap-2">
+                {canShareClip(c) && (
+                  <button type="button" className="btn btn-primary !min-h-[44px] flex-1 text-[14.5px]" onClick={() => shareClip(c)} aria-label="Share video">
+                    <Share2 size={17} /> Share
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className="btn btn-secondary !min-h-[44px] flex-1 text-[14.5px]"
+                  aria-label="Save video"
+                  onClick={async () => {
+                    const where = await downloadClip(c);
+                    if (where) {
+                      setNote(where);
+                      setTimeout(() => setNote(''), 3500);
+                    }
+                  }}
+                >
+                  <Download size={17} /> Save
                 </button>
-              )}
+              </div>
             </div>
           </div>
         ))}
       </div>
+      {note && <div className="muted mt-2 text-center text-[13px]">{note}</div>}
+      <p className="muted mt-2 text-center text-[12px]">Share straight to TikTok, Instagram Reels or WhatsApp.</p>
     </>
   );
 }

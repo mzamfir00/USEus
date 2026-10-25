@@ -6,7 +6,7 @@ An IRL party game where every player uses their own phone. Spin a mission, get y
 
 ## Features
 
-- **Accounts:** sign up with a phone number (with country code) or an email, plus a PIN or password and a date of birth (16+ only). Phone, email and @username must be unique. Storage is permanent: IndexedDB + LocalStorage, mirrored to Supabase.
+- **Accounts:** sign up with a phone number (with country code) or an email, plus a PIN or password and a date of birth (16+ only). Phone, email and @username must be unique. Accounts are stored in IndexedDB + LocalStorage and mirrored to Supabase until the owner deletes them.
 - **Tabs:**
   - **Play:** create a room, or join by code or QR.
   - **Squad:** find and add friends.
@@ -63,9 +63,45 @@ An IRL party game where every player uses their own phone. Spin a mission, get y
 - **Real video:** a canvas compositor (grayscale camera plus a REC / game / location / room stamp) records through `MediaRecorder`. Clips can be replayed, saved or shared from the results screen.
 - **Room DNA:** finished rounds level a room up toward the style of its most-played arena, and unlock that style for each player's profile.
 
+## App Store / Google Play compliance
+
+- **In-app account deletion** (Apple 5.1.1, Google Play): Profile → **Delete Account Permanently**, confirmed by typing DELETE. The owner-verified `delete_account()` RPC erases the cloud account, friendships, hosted rooms and their logs, the username in other rooms' scores and logs, and the user's reports. Every local copy (LocalStorage + IndexedDB) is wiped too. If the phone is offline, the cloud deletion retries the next time the app opens online.
+- **IRL safety warning:** shown on first launch, and again in the briefing before every outdoor or dark round, with an "I Understand & Agree" button.
+- **Moderation** (Apple 1.2):
+  - Hosts can remove a player from the lobby or the in-game menu; removed players can't rejoin that room.
+  - Every player can **Block** someone (hidden on this phone: name, photos, search and friends) or **Report** them. Reports are logged locally and in the write-only `reports` table.
+  - The Terms promise review of reports within 24 hours.
+- **Privacy Policy & Terms of Use (16+):** in-app documents on the sign-up screen and in Profile. They cover how the camera, microphone (noise meter), GPS location (playzone), motion sensors and account data are used and deleted. The same pages are public, for store listings:
+  - `https://mzamfir00.github.io/USEus/?legal=privacy`
+  - `https://mzamfir00.github.io/USEus/?legal=terms`
+
+  Set `VITE_SUPPORT_EMAIL` at build time to show a contact address.
+
+## Native apps (Capacitor)
+
+- **App:** `appId` `com.useus.game`, `appName` USEus. The native projects live in `android/` and `ios/` (Capacitor 8, iOS via Swift Package Manager).
+- **Permissions:**
+  - **Android** (`AndroidManifest.xml`): CAMERA, FLASHLIGHT, RECORD_AUDIO, ACCESS_FINE/COARSE_LOCATION, VIBRATE.
+  - **iOS** (`Info.plist`): NSCamera / NSMicrophone / NSLocationWhenInUse / NSMotion / NSPhotoLibraryAdd usage descriptions, plus `ITSAppUsesNonExemptEncryption = false`.
+- **Clips:** shared through the native share sheet (`@capacitor/share` + `@capacitor/filesystem`), or `navigator.share({ files })` on the web. Save writes to Documents › USEus (Android) or Files › USEus (iOS).
+- **Native behaviour:** invite links and QR codes always use the public web URL. Android's back button closes the open sheet, or sends the app to the background.
+- **Icons:** `resources/icon.svg` is the source. It is rendered into `public/` (PWA manifest, Apple touch icon, favicon), the Android launcher and adaptive icons, the splash screens, and the iOS App Store icon (opaque 1024×1024).
+
+```bash
+npm run native:sync   # build the web bundle and copy it into android/ + ios/
+npm run android       # …and open Android Studio
+npm run ios           # …and open Xcode (macOS)
+```
+
+**Android CI:** `.github/workflows/build-android.yml` runs on every push to `main`, or manually from the Actions tab.
+- It builds the web bundle at the root path, runs `cap sync android`, then Gradle `assembleDebug assembleRelease bundleRelease`.
+- It uploads two artifacts: **USEus-apk** (the installable debug APK, plus the release APK) and **USEus-aab** (the Play App Bundle). The versionCode follows the run number.
+- It uses JDK 21, which Capacitor 8 and Android Gradle Plugin 8.13 require.
+- To get signed release builds for Play, add the repository secrets `ANDROID_KEYSTORE_BASE64` (the keystore, `base64 -w0`), `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS` and `ANDROID_KEY_PASSWORD`. Without them, release builds are unsigned.
+
 ## Cloud database (optional)
 
-1. Create a Supabase project and run [`supabase/schema.sql`](supabase/schema.sql). It's safe to re-run after updates: it also adds the `game` and `location` columns to `mission_logs`. It creates `accounts`, `friendships`, `rooms` and `mission_logs`, along with row-level security, the login/search functions and the no-delete and 16+ triggers.
+1. Create a Supabase project and run [`supabase/schema.sql`](supabase/schema.sql). **Re-run it after updating the app.** It's idempotent, and it adds the `delete_account()` RPC and the `reports` table that in-app deletion and reporting need. It creates `accounts`, `friendships`, `rooms`, `mission_logs` and `reports`, along with row-level security, the login/search/delete functions, and the owner-only-delete and 16+ triggers.
 2. Add the repository secrets `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`. The Pages workflow passes them to the build. Alternatively, connect from **Profile → Cloud database** on a single device.
 
 With the cloud database, players can log in on any device with their phone or email + PIN, and find each other by phone or email. Without it, accounts live permanently on the device where they were created.
@@ -85,12 +121,16 @@ src/
   game/briefings.js     Mission Briefing content: setup steps, per-role controls and penalties
   lib/clips.js          recorded clips (replay / save / share)
   lib/motion.js         shared motion + orientation + compass feed (iOS permission flow)
+  lib/platform.js       Capacitor vs browser: public invite URL, Android back button
   lib/geo.js            Haversine / bearing / destination maths, zone radius + shrinking ring
   ui/game/zone/*        GPS Playzone HUD, out-of-bounds penalty, radar, decoy, heartbeat, Leaflet map
   ui/game/Briefing.jsx  ready-up gate + the in-game "?" rules drawer
   ui/game/Rituals.jsx   Halloween Rituals screens (+ HorrorFx analog-horror overlay)
   ui/game/*             interactive role screens, roulette wheel, camera recorder
   ui/Auth.jsx, ui/tabs/*, ui/room/*, ui/primitives.jsx
+  ui/Legal.jsx          Privacy Policy + Terms of Use (in-app and ?legal=…)
+  ui/Safety.jsx         IRL safety warning gate
+  ui/Moderation.jsx     block / report / remove player sheets
   styles/theme.css      #000 / #FFF / #141414 / #262626 design system + DNA mutations
 ```
 

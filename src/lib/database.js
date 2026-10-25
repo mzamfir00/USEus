@@ -6,8 +6,9 @@
 //   2. IndexedDB + LocalStorage — always, mirrored, so nothing vanishes on refresh,
 //      session restart or a cleared LocalStorage. hydrate() restores whichever copy
 //      survived.
-// Accounts are retained permanently: there is no delete path anywhere in the app,
-// and the cloud schema blocks deletes (supabase/schema.sql).
+// Accounts are kept until their owner deletes them (Profile → Delete Account
+// Permanently): deleteAccount() erases the cloud copy through the owner-verified
+// delete_account() RPC and wipes every local trace. The schema blocks any other delete.
 
 const NS = 'useus.v3.';
 const KEYS = {
@@ -19,6 +20,9 @@ const KEYS = {
   applied: `${NS}applied`, // round keys already counted
   logs: `${NS}missionLogs`,
   cloud: `${NS}cloud`,
+  blocked: `${NS}blocked`, // username -> { id, name, at } hidden on this device
+  reports: `${NS}reports`, // reports filed from this device (and not yet uploaded)
+  deletions: `${NS}pendingDeletions`, // cloud deletions still to confirm (offline / old schema)
 };
 
 /* ------------------------------ local mirror ----------------------------- */
@@ -56,7 +60,13 @@ async function idbGet(key) {
 async function idbSet(key, value) {
   const db = await idb();
   if (!db) return;
-  db.transaction(IDB_STORE, 'readwrite').objectStore(IDB_STORE).put(value, key);
+  await new Promise((resolve) => {
+    const tx = db.transaction(IDB_STORE, 'readwrite');
+    tx.objectStore(IDB_STORE).put(value, key);
+    tx.oncomplete = resolve;
+    tx.onerror = resolve;
+    tx.onabort = resolve;
+  });
 }
 
 const read = (key, fallback) => {
@@ -68,6 +78,7 @@ const read = (key, fallback) => {
   }
 };
 
+// Writes both copies; await it when the IndexedDB copy must land before anything else.
 const write = (key, value) => {
   const json = JSON.stringify(value);
   try {
@@ -75,7 +86,7 @@ const write = (key, value) => {
   } catch (e) {
     /* quota or private mode: IndexedDB copy still lands */
   }
-  idbSet(key, json);
+  return idbSet(key, json);
 };
 
 // Restores LocalStorage from IndexedDB (and vice versa) before the app renders.
@@ -105,6 +116,8 @@ export async function hydrate() {
         Object.entries(a).forEach(([id, acc]) => {
           if (!merged[id] || (acc.updatedAt || 0) >= (merged[id].updatedAt || 0)) merged[id] = acc;
         });
+        // …except accounts their owner deleted (a copy can outlive the delete on a crash).
+        read(KEYS.deletions, []).forEach((j) => delete merged[j.id]);
         write(key, merged);
       }
     })
@@ -396,8 +409,131 @@ export const currentAccount = () => {
   return id ? accounts()[id] || null : null;
 };
 
-// Signing out only ends the session — the account itself is never removed.
+// Signing out only ends the session — the account itself stays until it is deleted.
 export const signOut = () => write(KEYS.session, null);
+
+/* ---------------------------- account deletion ---------------------------- */
+
+// Cloud half of a deletion. true = erased (or never uploaded), null = try again later.
+async function deleteCloudAccount(job) {
+  const sb = await getSupabase();
+  if (!sb) return true; // no cloud configured: nothing stored remotely
+  try {
+    const { data, error } = await sb.rpc('delete_account', { p_id: job.id, p_identifier: job.identifier, p_pass_hash: job.passHash });
+    if (error) throw error;
+    return data === true || data === false; // false: the cloud never had this account
+  } catch (e) {
+    console.warn('[database] cloud deletion pending', e);
+    return null;
+  }
+}
+
+// Permanently deletes an account: cloud row, friendships, hosted rooms and logs, and
+// every local copy (LocalStorage + IndexedDB). Returns { cloud: 'done' | 'pending' }.
+export async function deleteAccount(account) {
+  const job = { id: account.id, identifier: identifierOf(account), passHash: account.passHash, username: account.username, at: Date.now() };
+  const done = await deleteCloudAccount(job);
+  if (!done) await write(KEYS.deletions, [...read(KEYS.deletions, []).filter((j) => j.id !== job.id), job]);
+
+  const all = accounts();
+  delete all[account.id];
+  await Promise.all([write(KEYS.accounts, all), write(KEYS.session, null)]);
+  write(
+    KEYS.applied,
+    read(KEYS.applied, []).filter((k) => !k.startsWith(`${account.id}|`))
+  );
+  const rooms = read(KEYS.rooms, {});
+  const hosted = Object.keys(rooms).filter((code) => rooms[code].hostId === account.id);
+  hosted.forEach((code) => delete rooms[code]);
+  Object.values(rooms).forEach((r) => {
+    if (r.scores) delete r.scores[account.username];
+  });
+  write(KEYS.rooms, rooms);
+  write(
+    KEYS.logs,
+    read(KEYS.logs, [])
+      .filter((l) => !hosted.includes(l.room))
+      .map((l) => ({ ...l, players: (l.players || []).filter((u) => u !== account.username) }))
+  );
+  write(
+    KEYS.reports,
+    read(KEYS.reports, []).filter((r) => r.reporterId !== account.id)
+  );
+  // Last account on this phone: also clear what the device remembers about other players.
+  if (!Object.keys(all).length) {
+    await Promise.all([KEYS.known, KEYS.visited, KEYS.blocked].map((key) => write(key, {})));
+  }
+  return { cloud: done ? 'done' : 'pending' };
+}
+
+// Retries cloud deletions that couldn't finish (offline, or a project on the old schema).
+export async function retryPendingDeletions() {
+  const jobs = read(KEYS.deletions, []);
+  if (!jobs.length) return;
+  const left = [];
+  for (const job of jobs) {
+    // eslint-disable-next-line no-await-in-loop
+    if (!(await deleteCloudAccount(job))) left.push(job);
+  }
+  write(KEYS.deletions, left);
+}
+
+export const pendingDeletions = () => read(KEYS.deletions, []).length;
+
+/* --------------------------- block / report ------------------------------ */
+
+export const blockedUsers = () => read(KEYS.blocked, {});
+export const isBlocked = (username) => !!username && !!blockedUsers()[username];
+
+export function blockUser(player) {
+  write(KEYS.blocked, { ...blockedUsers(), [player.username]: { id: player.id, name: player.name, at: Date.now() } });
+}
+
+export function unblockUser(username) {
+  const all = blockedUsers();
+  delete all[username];
+  write(KEYS.blocked, all);
+}
+
+export const REPORT_REASONS = [
+  ['harassment', 'Harassment or bullying'],
+  ['inappropriate', 'Inappropriate or sexual content'],
+  ['cheating', 'Cheating or griefing'],
+  ['underage', 'Under 16'],
+  ['spam', 'Spam or impersonation'],
+  ['other', 'Something else'],
+];
+
+// Logs a report on this device and in the cloud `reports` table (write-only for clients).
+export async function reportUser({ reporter, player, reason, details, room }) {
+  const entry = {
+    reporterId: reporter?.id || null,
+    reporterUsername: reporter?.username || null,
+    reportedId: player.id || null,
+    reportedUsername: player.username,
+    reason,
+    details: (details || '').trim().slice(0, 500) || null,
+    room: room || null,
+    at: Date.now(),
+    uploaded: false,
+  };
+  const ok = await cloud(async (sb) => {
+    const { error } = await sb.from('reports').insert({
+      reporter_id: entry.reporterId,
+      reporter_username: entry.reporterUsername,
+      reported_id: entry.reportedId,
+      reported_username: entry.reportedUsername,
+      reason: entry.reason,
+      details: entry.details,
+      room_code: entry.room,
+    });
+    if (error) throw error;
+    return true;
+  });
+  entry.uploaded = !!ok;
+  write(KEYS.reports, [entry, ...read(KEYS.reports, [])].slice(0, 100));
+  return entry;
+}
 
 // Re-reads the account from the cloud (another phone may have played since).
 export async function refreshAccount(account) {

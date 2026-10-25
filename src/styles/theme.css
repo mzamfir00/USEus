@@ -17,7 +17,9 @@
   --sans: 'Inter', -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Roboto, sans-serif;
   --title-font: var(--sans);
   --eyebrow-font: var(--sans);
-  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  /* Capacitor (Android) injects --safe-area-inset-*; browsers and iOS provide env(). */
+  --safe-top: var(--safe-area-inset-top, env(safe-area-inset-top, 0px));
+  --safe-bottom: var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px));
 }
 
 * { -webkit-tap-highlight-color: transparent; }

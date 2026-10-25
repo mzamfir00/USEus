@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
-import { Building2, Car, Check, Crosshair, Dices, Flame, House, LocateFixed, ShoppingCart, Sparkles, Target, TreePine, Trees, X } from 'lucide-react';
+import { Building2, Car, Check, Crosshair, Dices, Flame, House, LocateFixed, MoreHorizontal, ShoppingCart, Sparkles, Target, TreePine, Trees, X } from 'lucide-react';
 import { ARENAS, GAMES, gamesFor, HALLOWEEN, halloweenLive, HUNT, packOf, ZONE_ARENAS, ZONE_RADII } from '../../game/games';
 import HorrorFx from '../game/HorrorFx';
+import { PlayerActions } from '../Moderation';
 import { Avatar, SectionLabel } from '../primitives';
 import LazyMap from '../game/zone/LazyMap';
 
@@ -134,6 +135,8 @@ export default function Lobby({ view, intent, onInvite }) {
   const online = view.players.filter((p) => p.connected);
   const st = view.settings;
   const [location, setLocation] = useState(st.location);
+  const [actions, setActions] = useState(null); // player whose block / report / remove sheet is open
+  const meP = view.players.find((p) => p.id === me);
   const [locating, setLocating] = useState(false);
   const seasonal = halloweenLive();
   const pack = st.pack === 'halloween' && seasonal ? 'halloween' : 'party';
@@ -171,10 +174,15 @@ export default function Lobby({ view, intent, onInvite }) {
                 {p.id === me && <span className="muted font-normal"> (you)</span>}
               </div>
               <div className="muted truncate text-[13px]">
-                @{p.username}
+                {p.blocked ? 'Hidden on this phone' : `@${p.username}`}
                 {p.isHost ? ' · Host' : ''}
               </div>
             </div>
+            {p.id !== me && (
+              <button type="button" aria-label={`Player options for ${p.name}`} onClick={() => setActions(p)} className="muted grid h-9 w-9 place-items-center">
+                <MoreHorizontal size={18} />
+              </button>
+            )}
             {isHost && !p.isHost && (
               <button type="button" aria-label={`Remove ${p.name}`} onClick={() => intent({ type: 'remove', id: p.id })} className="muted grid h-9 w-9 place-items-center">
                 <X size={17} />
@@ -183,6 +191,15 @@ export default function Lobby({ view, intent, onInvite }) {
           </div>
         ))}
       </div>
+      {actions && (
+        <PlayerActions
+          player={actions}
+          reporter={meP}
+          room={view.code}
+          onRemove={isHost && !actions.isHost ? (p) => intent({ type: 'remove', id: p.id }) : null}
+          onClose={() => setActions(null)}
+        />
+      )}
 
       <SectionLabel>{isHost ? 'Arena' : 'Arena · set by host'}</SectionLabel>
       <div className="grid grid-cols-3 gap-2">

@@ -11,8 +11,8 @@ import HorrorFx from './HorrorFx';
 import { useMotion } from './RedLight';
 import { BottomBar, GameShell, nameOf, PickPlayer, userOf } from './shared';
 
-const TOP = 'top-[calc(max(150px,calc(env(safe-area-inset-top)+136px))+var(--zone-h,0px))]';
-const PAD_TOP = 'pt-[calc(max(84px,calc(env(safe-area-inset-top)+70px))+var(--zone-top,0px))]';
+const TOP = 'top-[calc(max(150px,calc(var(--safe-top)+136px))+var(--zone-h,0px))]';
+const PAD_TOP = 'pt-[calc(max(84px,calc(var(--safe-top)+70px))+var(--zone-top,0px))]';
 
 // Fires `fn` whenever `value` changes after mount (new extinguish, new noise, new blackout…).
 function useOnChange(value, fn) {
@@ -213,7 +213,7 @@ function Relight({ out, now, exposed, onDone }) {
   }, [next]); // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <div
-      className="fixed inset-0 z-[60] flex flex-col bg-black px-5 pb-[calc(20px+var(--safe-bottom))] pt-[max(80px,calc(env(safe-area-inset-top)+66px))] text-white"
+      className="fixed inset-0 z-[60] flex flex-col bg-black px-5 pb-[calc(20px+var(--safe-bottom))] pt-[max(80px,calc(var(--safe-top)+66px))] text-white"
       style={exposed ? { animation: 'strobe .5s steps(1) infinite' } : undefined}
       data-relight={next}
     >
@@ -338,7 +338,7 @@ export function StatueEntity({ view, serverNow, intent, onLeave }) {
     <GameShell view={view} serverNow={serverNow} roleLabel={`The Statue · ${c.lit ? 'FREEZE' : 'move'}`} onLeave={onLeave}>
       <div className="absolute inset-0 bg-black text-white" data-statue={c.lit ? 'light' : 'dark'}>
         <HorrorFx />
-        <div className={`absolute inset-x-5 bottom-[calc(96px+var(--safe-bottom))] top-[max(80px,calc(env(safe-area-inset-top)+66px))] rounded-[28px] border-2 ${c.lit ? 'border-white' : 'border-white/10'}`} />
+        <div className={`absolute inset-x-5 bottom-[calc(96px+var(--safe-bottom))] top-[max(80px,calc(var(--safe-top)+66px))] rounded-[28px] border-2 ${c.lit ? 'border-white' : 'border-white/10'}`} />
         <div className="relative flex h-full flex-col items-center justify-center px-8 text-center">
           <div className="vhs text-[13px] text-white/50">{c.lit ? 'The light is on them' : 'Total blackout'}</div>
           <div className={`mt-2 text-[76px] font-bold leading-[0.9] tracking-[-0.05em] ${c.lit ? 'tremble' : 'text-white/80'}`}>{c.lit ? 'FREEZE' : 'MOVE'}</div>

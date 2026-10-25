@@ -392,7 +392,7 @@ export default function ZoneLayer({ view, serverNow, intent, onStrobe, onRows, c
     <>
       {/* Shade behind the HUD so the camera's REC stamp doesn't bleed between rows. */}
       <div className="pointer-events-none absolute inset-x-0 top-0 z-[15] bg-gradient-to-b from-black/80 via-black/50 to-transparent" style={{ height: rowsBottom + 14 }} />
-      <div ref={rowsRef} className="pointer-events-none absolute inset-x-4 top-[max(64px,calc(env(safe-area-inset-top)+52px))] z-[25] space-y-2 text-white">
+      <div ref={rowsRef} className="pointer-events-none absolute inset-x-4 top-[max(64px,calc(var(--safe-top)+52px))] z-[25] space-y-2 text-white">
         <div className="space-y-2">
           <div className="flex items-center gap-2">
             <button
@@ -497,7 +497,7 @@ export default function ZoneLayer({ view, serverNow, intent, onStrobe, onRows, c
       {/* Tactical map */}
       {mapOpen && (
         <div className={`fade fixed inset-0 flex flex-col bg-black text-white ${outDeadline || revealed ? 'z-[90]' : 'z-[70]'}`} data-tactical-map>
-          <div className="flex items-center gap-3 px-4 pb-3 pt-[max(14px,env(safe-area-inset-top))]">
+          <div className="flex items-center gap-3 px-4 pb-3 pt-[max(14px,var(--safe-top))]">
             <div className="min-w-0 flex-1">
               <div className="text-[15px] font-bold tracking-wide">TACTICAL MAP</div>
               <div className="truncate text-[12px] text-white/60">{status}</div>

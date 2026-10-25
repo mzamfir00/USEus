@@ -5,6 +5,8 @@ import { useRoom } from './hooks/useRoom';
 import { currentAccount, refreshAccount, signOut } from './lib/database';
 import { Synth } from './lib/sound';
 import Auth from './ui/Auth';
+import { LegalPage, LegalSheet } from './ui/Legal';
+import SafetyGate, { acceptSafety, safetyAccepted } from './ui/Safety';
 import { BgFx } from './ui/primitives';
 import Room from './ui/room/Room';
 import History from './ui/tabs/History';
@@ -26,6 +28,12 @@ const inviteFromUrl = () => {
   return /^\d{4}$/.test(code || '') ? code : null;
 };
 
+// ?legal=privacy | ?legal=terms opens the document without an account (store listing URL).
+const legalFromUrl = () => {
+  const doc = new URLSearchParams(window.location.search).get('legal');
+  return doc === 'privacy' || doc === 'terms' ? doc : null;
+};
+
 const clearInvite = () => {
   const url = new URL(window.location.href);
   url.searchParams.delete('room');
@@ -39,6 +47,10 @@ export default function App() {
   const [inRoom, setInRoom] = useState(false);
   const [invite, setInvite] = useState(() => inviteFromUrl());
   const [sound, setSound] = useState(() => localStorage.getItem(SOUND_KEY) !== 'off');
+  const [legalPage, setLegalPage] = useState(() => legalFromUrl());
+  const [safety, setSafety] = useState(() => !safetyAccepted());
+  const [safetyTerms, setSafetyTerms] = useState(false);
+  const [notice, setNotice] = useState('');
   const room = useRoom(account, setAccount);
 
   useEffect(() => {
@@ -99,8 +111,34 @@ export default function App() {
   }
   const themeClass = `st-${style} ${stage >= 1 ? 'lv1' : ''} ${stage >= 2 ? 'lv2' : ''} ${stage >= 3 ? 'lv3' : ''}`;
 
+  if (legalPage) {
+    return (
+      <div className="app">
+        <LegalPage
+          doc={legalPage}
+          onBack={() => {
+            const url = new URL(window.location.href);
+            url.searchParams.delete('legal');
+            window.history.replaceState(null, '', url.pathname + url.search + url.hash);
+            setLegalPage(null);
+          }}
+        />
+      </div>
+    );
+  }
+
   let body;
-  if (!account) body = <Auth invite={invite} onAuthed={setAccount} />;
+  if (!account)
+    body = (
+      <Auth
+        invite={invite}
+        notice={notice}
+        onAuthed={(a) => {
+          setNotice('');
+          setAccount(a);
+        }}
+      />
+    );
   else if (inRoom) body = <Room room={room} code={roomCode} onLeave={leave} />;
   else {
     body = (
@@ -119,6 +157,15 @@ export default function App() {
                 signOut();
                 setAccount(null);
                 setTab('play');
+              }}
+              onDeleted={(result) => {
+                setAccount(null);
+                setTab('play');
+                setNotice(
+                  result.cloud === 'done'
+                    ? 'Your account and all of its data were permanently deleted.'
+                    : 'Your account was deleted from this phone. The cloud copy will be erased automatically the next time USEus opens online.'
+                );
               }}
             />
           )}
@@ -141,6 +188,20 @@ export default function App() {
     <div className={`app ${themeClass}`}>
       <BgFx />
       {body}
+      {safety && (
+        <SafetyGate
+          onAgree={() => {
+            acceptSafety();
+            setSafety(false);
+          }}
+          onTerms={() => setSafetyTerms(true)}
+        />
+      )}
+      {safetyTerms && (
+        <div className="relative z-[96]">
+          <LegalSheet doc="terms" onClose={() => setSafetyTerms(false)} />
+        </div>
+      )}
     </div>
   );
 }

@@ -76,7 +76,7 @@ function QrScanner({ onCode, onClose }) {
       <div className="absolute inset-0 grid place-items-center">
         <div className="h-64 w-64 rounded-[32px] border-2 border-white/90 shadow-[0_0_0_9999px_rgba(0,0,0,0.55)]" />
       </div>
-      <div className="absolute inset-x-0 top-0 flex items-center justify-between px-6 pt-[max(20px,env(safe-area-inset-top))]">
+      <div className="absolute inset-x-0 top-0 flex items-center justify-between px-6 pt-[max(20px,var(--safe-top))]">
         <div className="text-[17px] font-semibold">Scan room QR</div>
         <button type="button" aria-label="Close scanner" className="icon-btn" onClick={onClose}>
           <X size={18} />
