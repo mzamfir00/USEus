@@ -15,7 +15,13 @@ An IRL party game where every player uses their own phone. Spin a mission, get y
 - **Host setup:**
   - **Arena:** Indoor, Park, Forest, Supermarket / Mall, City Streets or Roadtrip.
   - **Exact location:** typed, or filled in with one tap from GPS. It's stamped on the camera video and saved in the match history.
-  - **Game choice:** **Random roulette** (a synced monochrome wheel over the games that fit the arena) or **Choose game**, with an optional pick of who starts.
+  - **Game choice:** **Random roulette** (a synced monochrome wheel over the games that fit the arena) or **Choose game**, with an optional pick of who starts. A pack filter switches between all games and the seasonal Halloween Horror Pack.
+- **Mission Briefing & ready-up gate (every game):** after the wheel or the host's pick, every phone shows a briefing before any timer or camera starts:
+  - **Physical setup:** step-by-step instructions for preparing the room or space right now.
+  - **Your role & phone controls:** three personal bullets covering what to do in real life, which buttons your screen shows, and what gets you penalised.
+  - **How the other roles work:** a summary of the other side's abilities. Secret roles stay hidden.
+
+  A live "READY: 3/4 PLAYERS" counter tracks "I UNDERSTAND THE RULES — READY" taps. The countdown starts when every connected player is ready, or when the host taps Force start. During play, a "?" button reopens your briefing without pausing the camera or triggering the Snitch Protocol.
 - **Six party games**, with every phone as a controller:
   - **Blind Sonar:** the blind hunter's phone is one giant tap target. Each pulse (12 s cooldown) counts down 3-2-1 and then makes every survivor's phone beep loudly while they film. Survivors can claim a Near miss.
   - **Paparazzi Sniper:** each player has a private target in a circular chain. A sniper viewfinder takes stamped photos, and the squad votes on each shot: clean hit or spotted.
@@ -29,6 +35,12 @@ An IRL party game where every player uses their own phone. Spin a mission, get y
   - **The Floor Is Lava:** random 5-second siren countdowns. Phones judge camera-down orientation (or a tap fallback) and take proof photos.
   - **Infected Zombie Tag:** the zombie's flashlight strobes as a beacon, and tagged survivors join the horde.
   - **Marco Polo: Flash Edition:** "MARCO!" with a 20 s cooldown makes every hider's phone say "Polo!" and flash.
+- **Halloween Rituals (limited time, Oct 1 – Nov 7):** five urban-legend games with noir / analog-horror styling (VHS scanlines, grain, flicker):
+  - **The Midnight Man:** survivors' flashlights are their candles. The Midnight Man can blow one out every 25 s, with a whisper through that phone's speaker. The survivor then has 10 s to relight by tapping 5 matches in order; failing that, the phone shrieks and strobes until relit.
+  - **Don't Blink: The Weeping Statue:** every phone runs 3 s of flashlight, then 5 s of total blackout, in sync with a shutter clunk. The Statue's own motion sensor snitches if it moves in the light.
+  - **Daruma-san:** walkers are locked to the selfie camera with a soft glow and must hit 3 checkpoints without turning around. "TOMARE! (FREEZE SHADOW)" freezes the Shadow for 5 s and saves a proof selfie.
+  - **Dead Silence:** a blindfolded hunter sits in the centre while survivors do 3 noisy tasks. An ultra-sensitive whisper-threshold mic plays a music-box chime and a 0.5 s flash on any sound.
+  - **The Doppelgänger:** one secret impostor. Every 60 s a 10 s power outage kills every flashlight and screen, and only then can the Doppelgänger claim the player beside them. A live majority vote unmasks them, or banishes an innocent.
 - **Snitch Protocol (mandatory filming):** every filming role auto-records. Any of these sets off a continuous siren (it ignores the mute toggle), a 250 ms torch strobe and a white/black screen strobe, and alerts the room with "@user STOPPED FILMING":
   - stopping the recording or losing the camera;
   - leaving the app;
@@ -70,10 +82,13 @@ src/
   game/engine.js        host-authoritative rules for every game + the GPS Playzone, scoring, Room DNA, per-phone views
   game/games.js         arenas, game definitions, scripts, dares, covert tasks, XP table
   game/missions.js      challenges used by Undercover Saboteur
+  game/briefings.js     Mission Briefing content: setup steps, per-role controls and penalties
   lib/clips.js          recorded clips (replay / save / share)
   lib/motion.js         shared motion + orientation + compass feed (iOS permission flow)
   lib/geo.js            Haversine / bearing / destination maths, zone radius + shrinking ring
   ui/game/zone/*        GPS Playzone HUD, out-of-bounds penalty, radar, decoy, heartbeat, Leaflet map
+  ui/game/Briefing.jsx  ready-up gate + the in-game "?" rules drawer
+  ui/game/Rituals.jsx   Halloween Rituals screens (+ HorrorFx analog-horror overlay)
   ui/game/*             interactive role screens, roulette wheel, camera recorder
   ui/Auth.jsx, ui/tabs/*, ui/room/*, ui/primitives.jsx
   styles/theme.css      #000 / #FFF / #141414 / #262626 design system + DNA mutations

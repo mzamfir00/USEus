@@ -93,6 +93,76 @@ function Reveal({ view, media }) {
       return <div className="card p-5 text-[14.5px]">Horde: {rv.zombies.map((id) => nameOf(view, id)).join(' → ')}</div>;
     case 'marco_polo':
       return rv.tagged?.length ? <div className="card p-5 text-[14.5px]">Tagged: {rv.tagged.map((id) => nameOf(view, id)).join(', ')}</div> : null;
+    case 'midnight_man':
+      return (
+        <div className="card p-5 text-[14.5px]">
+          <div>
+            {rv.blown} candle{rv.blown === 1 ? '' : 's'} blown out
+            {rv.caught.length ? ` · taken: ${rv.caught.map((id) => nameOf(view, id)).join(', ')}` : ''}
+          </div>
+          {Object.keys(rv.exposures).length > 0 && (
+            <div className="muted mt-1">
+              Exposed:{' '}
+              {Object.entries(rv.exposures)
+                .map(([id, n]) => `${nameOf(view, id)} ×${n}`)
+                .join(', ')}
+            </div>
+          )}
+        </div>
+      );
+    case 'weeping_statue':
+      return (
+        <div className="card p-5 text-[14.5px]">
+          {rv.tagged.length ? `Tagged: ${rv.tagged.map((id) => nameOf(view, id)).join(', ')}` : 'Nobody was tagged.'}
+          {rv.moves > 0 && <div className="muted mt-1">The Statue moved in the light ×{rv.moves}</div>}
+        </div>
+      );
+    case 'daruma':
+      return (
+        <>
+          <div className="card p-5 text-[14.5px]">
+            {rv.freezes} TOMARE call{rv.freezes === 1 ? '' : 's'}
+            {rv.caught.length ? ` · caught: ${rv.caught.map((id) => nameOf(view, id)).join(', ')}` : ''}
+          </div>
+          {rv.shots?.some((p) => media[p.id]) && (
+            <div className="noscroll -mx-6 mt-3 flex gap-3 overflow-x-auto px-6">
+              {rv.shots
+                .filter((p) => media[p.id])
+                .map((p) => (
+                  <div key={p.id} className="card w-[120px] shrink-0 overflow-hidden">
+                    <div className="aspect-[9/16] bg-black">
+                      <img src={media[p.id]} alt="" className="h-full w-full object-cover" />
+                    </div>
+                    <div className="truncate p-2.5 text-[12px] font-semibold">TOMARE · {nameOf(view, p.by).split(' ')[0]}</div>
+                  </div>
+                ))}
+            </div>
+          )}
+        </>
+      );
+    case 'dead_silence':
+      return (
+        <div className="card p-5 text-[14.5px]">
+          {rv.caught.length ? `Caught: ${rv.caught.map((id) => nameOf(view, id)).join(', ')}` : 'Nobody was caught.'}
+          {Object.keys(rv.noise).length > 0 && (
+            <div className="muted mt-1">
+              Noises:{' '}
+              {Object.entries(rv.noise)
+                .map(([id, n]) => `${nameOf(view, id)} ×${n}`)
+                .join(', ')}
+            </div>
+          )}
+        </div>
+      );
+    case 'doppelganger':
+      return (
+        <div className="card p-5">
+          <div className="eyebrow">The Doppelgänger was</div>
+          <div className="headline mt-1 text-[24px]">{nameOf(view, rv.doppelganger)}</div>
+          {rv.taken.length > 0 && <div className="mt-2 text-[14.5px]">Taken in the dark: {rv.taken.map((id) => nameOf(view, id)).join(', ')}</div>}
+          {rv.banished.length > 0 && <div className="muted mt-1 text-[14.5px]">Innocents voted out: {rv.banished.map((id) => nameOf(view, id)).join(', ')}</div>}
+        </div>
+      );
     default:
       return null;
   }

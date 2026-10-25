@@ -1,10 +1,11 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { MapPin, Radar, Siren } from 'lucide-react';
-import { requestMotion, useMotionMode } from '../../lib/motion';
+import { MapPin } from 'lucide-react';
 import { PICK_MS, WHEEL_MS } from '../../game/engine';
-import { ARENAS, GAMES, HUNT, XP } from '../../game/games';
+import { ARENAS, GAMES } from '../../game/games';
 import { buzz, Synth } from '../../lib/sound';
 import { useNow } from '../room/helpers';
+import Briefing from './Briefing';
+import HorrorFx from './HorrorFx';
 import { nameOf } from './shared';
 
 const roleBrief = (view) => {
@@ -13,6 +14,7 @@ const roleBrief = (view) => {
   const role = r.roles[view.me];
   if (!role) return { label: 'Spectator', brief: 'You joined mid-round. Watch this one — you’re in next time.' };
   if (r.game === 'undercover' && view.mine?.saboteur) return g.roles.saboteur;
+  if (r.game === 'doppelganger' && view.mine?.doppelganger) return g.roles.doppelganger;
   if (r.game === 'paparazzi') return { label: 'Sniper', brief: `${g.roles.sniper.brief} Your target: ${nameOf(view, view.mine?.target)}.` };
   return g.roles[role];
 };
@@ -97,22 +99,21 @@ function Wheel({ view, serverNow, onLocked }) {
   );
 }
 
-export default function Intro({ view, serverNow }) {
+export default function Intro({ view, serverNow, intent }) {
   useNow(200);
   const r = view.round;
   const g = GAMES[r.game];
   const now = serverNow();
   const isRandom = r.mode === 'random';
-  const revealAt = r.spunAt + (isRandom ? WHEEL_MS : PICK_MS);
+  const revealAt = r.revealAt || r.spunAt + (isRandom ? WHEEL_MS : PICK_MS);
   const [locked, setLocked] = useState(!isRandom || now >= revealAt);
-  const showRole = now >= revealAt;
-  const startsIn = Math.max(0, Math.ceil((r.startsAt - now) / 1000));
+  const revealed = now >= revealAt;
+  const startsIn = r.startsAt ? Math.max(0, Math.ceil((r.startsAt - now) / 1000)) : null;
   const brief = roleBrief(view);
   const played = useRef(false);
-  const motion = useMotionMode();
-  const films = g.film.includes(r.roles[view.me]);
+  const horror = g.pack === 'halloween';
 
-  // Ask for location during the intro so the prompt doesn't land mid-game.
+  // Ask for location during the briefing so the prompt doesn't land mid-game.
   useEffect(() => {
     if (r.zone && !r.zone.sim) navigator.geolocation?.getCurrentPosition(() => {}, () => {}, { enableHighAccuracy: true, timeout: 15000 });
   }, [r.spinId]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -125,65 +126,46 @@ export default function Intro({ view, serverNow }) {
     }
   }, [isRandom, now, revealAt]);
 
-  return (
-    <div className="flex flex-1 flex-col items-center justify-center pb-10 text-center">
-      {!showRole ? (
-        <>
-          <div className="eyebrow">{isRandom ? `Random roulette · ${ARENAS[r.arena].label}` : 'Host’s pick'}</div>
-          <div className="mt-6 w-full">
-            {isRandom ? (
-              <Wheel view={view} serverNow={serverNow} onLocked={() => setLocked(true)} />
-            ) : (
-              <div className="pop title text-[44px]">{g.name}</div>
-            )}
-          </div>
-          {isRandom && locked && <div className="pop title mt-6 text-[32px]">{g.name}</div>}
-        </>
-      ) : (
-        <div className="enter w-full">
-          <div className="eyebrow">{g.name}</div>
-          <div className="mt-6 text-[15px] font-medium text-[var(--muted)]">You are</div>
-          <div className="title mt-1 text-[40px]">{brief.label}</div>
-          <p className="mx-auto mt-4 max-w-[32ch] text-[16px] leading-relaxed">{brief.brief}</p>
-          {films && (
-            <div className="mx-auto mt-5 flex max-w-[32ch] items-start gap-2 rounded-[16px] border border-[var(--border)] px-4 py-3 text-left text-[13px] leading-snug">
-              <Siren size={16} className="mt-0.5 shrink-0" />
-              <span>Snitch Protocol: you must keep filming. Stopping, leaving the app or covering the lens sets off a siren and flashing lights.</span>
-            </div>
-          )}
-          {r.zone && (
-            <div className="mx-auto mt-3 flex max-w-[32ch] items-start gap-2 rounded-[16px] border border-[var(--border)] px-4 py-3 text-left text-[13px] leading-snug" data-zone-intro>
-              <Radar size={16} className="mt-0.5 shrink-0" />
-              <span>
-                GPS Playzone · {r.zone.radius} m{r.zone.shrink ? ', shrinking in the final 3 minutes' : ''}. Leave it for 10 s and your live position is revealed ({XP.zoneOut} XP).
-                {r.hunt ? ` ${HUNT[r.game].hunter}s get 2 radar pings; ${HUNT[r.game].hiders} get a decoy, a heartbeat warning and a mid-round supply drop.` : ''}
-                {r.zone.sim ? ' Simulated GPS: move with the on-screen pad.' : ''}
-              </span>
-            </div>
-          )}
-          {motion === 'ask' && (
-            <button
-              type="button"
-              className="btn btn-secondary mx-auto mt-4 !w-auto px-6"
-              onClick={() => {
-                Synth.unlock();
-                requestMotion();
-              }}
-            >
-              {r.zone ? 'Enable motion & compass' : 'Enable motion sensors'}
-            </button>
-          )}
-          {r.location && (
-            <div className="muted mt-6 inline-flex items-center gap-1.5 text-[13.5px]">
-              <MapPin size={14} /> {r.location}
-            </div>
-          )}
-          <div className="mt-10">
-            <div className="tnum text-[64px] font-bold leading-none">{startsIn}</div>
-            <div className="muted mt-2 text-[14px]">Starting</div>
-          </div>
+  // Everyone tapped ready: a short countdown chime before the clock starts.
+  const lastCount = useRef(null);
+  useEffect(() => {
+    if (r.stage !== 'live' || startsIn === null) return;
+    if (startsIn !== lastCount.current && startsIn > 0 && startsIn <= 3) Synth.beep(startsIn === 1);
+    lastCount.current = startsIn;
+  }, [r.stage, startsIn]);
+
+  // Wheel / host pick first, then the Mission Briefing until everyone is ready.
+  if (r.stage === 'brief') {
+    if (revealed) return <Briefing view={view} intent={intent} />;
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center pb-10 text-center">
+        <div className="eyebrow">{isRandom ? `Random roulette · ${ARENAS[r.arena].label}${horror ? ' · Halloween' : ''}` : 'Host’s pick'}</div>
+        <div className="mt-6 w-full">
+          {isRandom ? <Wheel view={view} serverNow={serverNow} onLocked={() => setLocked(true)} /> : <div className={`pop title text-[44px] ${horror ? 'horror-title' : ''}`}>{g.name}</div>}
         </div>
-      )}
+        {isRandom && locked && <div className={`pop title mt-6 text-[32px] ${horror ? 'horror-title' : ''}`}>{g.name}</div>}
+      </div>
+    );
+  }
+
+  return (
+    <div className={`enter relative flex flex-1 flex-col items-center justify-center pb-10 text-center ${horror ? 'horror' : ''}`} data-countdown-screen>
+      {horror && <HorrorFx fixed />}
+      <div className="relative w-full">
+        <div className="eyebrow">Everyone’s ready · {g.name}</div>
+        <div className="mt-6 text-[15px] font-medium text-[var(--muted)]">You are</div>
+        <div className={`title mt-1 text-[40px] ${horror ? 'horror-title' : ''}`}>{brief.label}</div>
+        <p className="mx-auto mt-4 max-w-[32ch] text-[16px] leading-relaxed">{brief.brief}</p>
+        {r.location && (
+          <div className="muted mt-6 inline-flex items-center gap-1.5 text-[13.5px]">
+            <MapPin size={14} /> {r.location}
+          </div>
+        )}
+        <div className="mt-10">
+          <div className="tnum text-[64px] font-bold leading-none">{startsIn}</div>
+          <div className="muted mt-2 text-[14px]">{g.film.includes(r.roles[view.me]) ? 'Cameras roll at zero' : 'Starting'}</div>
+        </div>
+      </div>
     </div>
   );
 }

@@ -225,6 +225,59 @@ export const Synth = (() => {
       tone(c, { type: 'sawtooth', freq: 110, endFreq: 70, dur: 0.8, vol: 0.5, filter: { type: 'lowpass', freq: 600 } });
       noise(c, { dur: 0.6, vol: 0.3, type: 'bandpass', freq: 300 });
     },
+    /* ---------------- Halloween Rituals (all forced: they are the mechanic) ---------------- */
+    // Midnight Man: a breathy whisper riding a wind gust, played as your candle dies.
+    whisper() {
+      const c = ensureForced();
+      if (!c) return;
+      noise(c, { dur: 1.8, vol: 0.55, type: 'bandpass', freq: 380, endFreq: 1400 });
+      noise(c, { dur: 1.2, vol: 0.4, type: 'bandpass', freq: 2600, endFreq: 900, start: 0.25 });
+      [0.15, 0.55, 0.95].forEach((s) => noise(c, { dur: 0.35, vol: 0.35, type: 'highpass', freq: 5200, start: s }));
+      tone(c, { type: 'sine', freq: 92, endFreq: 61, dur: 1.9, vol: 0.35 });
+    },
+    // Failed relight: a dissonant shriek that gives away where you are.
+    shriek() {
+      const c = ensureForced();
+      if (!c) return;
+      [1480, 1567, 2217].forEach((f) => tone(c, { type: 'sawtooth', freq: f, endFreq: f * 0.82, dur: 0.9, vol: 0.32, filter: { type: 'highpass', freq: 900 } }));
+      noise(c, { dur: 0.9, vol: 0.45, type: 'highpass', freq: 3000 });
+    },
+    // Dead Silence: a detuned music-box phrase.
+    musicBox() {
+      const c = ensureForced();
+      if (!c) return;
+      [1318.5, 1567.98, 1975.53, 1244.51].forEach((f, i) => {
+        tone(c, { type: 'sine', freq: f, dur: 0.7, vol: 0.4, start: i * 0.16 });
+        tone(c, { type: 'triangle', freq: f * 2.01, dur: 0.25, vol: 0.12, start: i * 0.16 });
+      });
+    },
+    // Weeping Statue: heavy shutter click on every light / dark switch.
+    clunk() {
+      const c = ensureForced();
+      if (!c) return;
+      noise(c, { dur: 0.06, vol: 0.8, type: 'bandpass', freq: 1800 });
+      noise(c, { dur: 0.08, vol: 0.6, type: 'lowpass', freq: 600, start: 0.05 });
+      tone(c, { type: 'sine', freq: 70, endFreq: 40, dur: 0.25, vol: 0.6 });
+    },
+    // Doppelgänger: power outage drop.
+    powerDown() {
+      const c = ensureForced();
+      if (!c) return;
+      tone(c, { type: 'sawtooth', freq: 120, endFreq: 28, dur: 1.4, vol: 0.45, filter: { type: 'lowpass', freq: 900, endFreq: 80 } });
+      noise(c, { dur: 0.25, vol: 0.6, type: 'lowpass', freq: 400 });
+    },
+    powerUp() {
+      const c = ensure();
+      if (!c) return;
+      tone(c, { type: 'sawtooth', freq: 40, endFreq: 120, dur: 0.6, vol: 0.3, filter: { type: 'lowpass', freq: 300, endFreq: 1200 } });
+    },
+    // Daruma-san: the shadow's phone when someone calls TOMARE.
+    sting() {
+      const c = ensureForced();
+      if (!c) return;
+      [0, 0.03].forEach((s) => tone(c, { type: 'square', freq: 220 + s * 1000, endFreq: 110, dur: 0.6, vol: 0.4, start: s, filter: { type: 'lowpass', freq: 2400 } }));
+      noise(c, { dur: 0.4, vol: 0.4, type: 'bandpass', freq: 900 });
+    },
     // The running AudioContext (for microphone analysis), regardless of mute.
     rawContext() {
       ensureForced();

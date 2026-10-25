@@ -1,10 +1,11 @@
 import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
-import { Siren, X } from 'lucide-react';
+import { CircleHelp, Siren, X } from 'lucide-react';
 import { GAMES } from '../../game/games';
 import { buzz, Synth } from '../../lib/sound';
 import { Sheet } from '../primitives';
 import { formatTime, useNow } from '../room/helpers';
 import ZoneLayer from './zone/ZoneLayer';
+import { RulesSections } from './Briefing';
 
 // Lets the shell send intents (host: end round) without threading props through every game.
 export const IntentContext = createContext(() => {});
@@ -44,6 +45,7 @@ export function GameShell({ view, serverNow, roleLabel, onLeave, children, light
   useWakeLock();
   const intent = useContext(IntentContext);
   const [menu, setMenu] = useState(false);
+  const [rules, setRules] = useState(false); // "?" drawer: re-read your briefing without stopping the camera
   const [zoneStrobe, setZoneStrobe] = useState(false);
   const [zoneRows, setZoneRows] = useState(0); // bottom edge of the GPS Playzone HUD, px from the top
   const isHost = view.hostId === view.me;
@@ -83,6 +85,9 @@ export function GameShell({ view, serverNow, roleLabel, onLeave, children, light
             <div className="truncate text-[13px] font-semibold leading-tight">{GAMES[r.game].name}</div>
             <div className={`truncate text-[11.5px] leading-tight ${light ? 'text-black/60' : 'text-white/60'}`}>{roleLabel}</div>
           </div>
+          <button type="button" aria-label="Rules" onClick={() => setRules(true)} className={`pointer-events-auto grid h-10 w-10 shrink-0 place-items-center rounded-full border backdrop-blur ${chip}`}>
+            <CircleHelp size={18} />
+          </button>
           {r.game !== 'hot_potato' && <div className={`tnum rounded-full border px-3.5 py-2.5 text-[14px] font-semibold backdrop-blur ${chip}`}>{formatTime(left)}</div>}
         </div>
         {r.zone && r.roles[view.me] ? (
@@ -101,6 +106,18 @@ export function GameShell({ view, serverNow, roleLabel, onLeave, children, light
           )
         )}
       </div>
+      {rules && (
+        <div className="text-[var(--fg)]" data-rules-drawer>
+          <Sheet title="How to play" onClose={() => setRules(false)}>
+            <div className="-mt-5">
+              <RulesSections view={view} setupFirst={false} />
+            </div>
+            <button type="button" className="btn btn-primary mt-6" onClick={() => setRules(false)}>
+              Back to the game
+            </button>
+          </Sheet>
+        </div>
+      )}
       {menu && (
         <div className="text-[var(--fg)]">
           <Sheet title="Host controls" onClose={() => setMenu(false)}>

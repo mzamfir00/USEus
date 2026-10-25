@@ -94,7 +94,7 @@ function useTimerAlerts(view, serverNow) {
     if (view?.phase !== 'round' || view.round.game === 'hot_potato') return undefined;
     const id = setInterval(() => {
       const now = serverNow();
-      if (now < view.round.startsAt) return;
+      if (view.round.stage !== 'live' || now < view.round.startsAt) return;
       const secs = Math.ceil(Math.max(0, view.round.endsAt - now) / 1000);
       if (prev.current !== null && secs !== prev.current) {
         if (secs <= 5 && secs > 0) Synth.beep(secs <= 2);
@@ -175,8 +175,8 @@ export default function Room({ room, code, onLeave }) {
         <main className="flex flex-1 flex-col pt-2">
           {view.phase === 'lobby' && <Lobby view={view} intent={intent} onInvite={() => setSheet('invite')} />}
           {view.phase === 'round' &&
-            (serverNow() < view.round.startsAt ? (
-              <Intro key={view.round.spinId} view={view} serverNow={serverNow} />
+            (view.round.stage === 'brief' || serverNow() < view.round.startsAt ? (
+              <Intro key={view.round.spinId} view={view} serverNow={serverNow} intent={intent} />
             ) : (
               <GameScreen key={view.round.spinId} view={view} serverNow={serverNow} intent={intent} media={media} onLeave={onLeave} />
             ))}

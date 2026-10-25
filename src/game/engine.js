@@ -6,6 +6,7 @@ import { MISSIONS } from './missions';
 import { DEFAULT_PACK, DNA_STYLES, MAX_PLAYERS } from './constants';
 import {
   ARENAS,
+  CHECKPOINTS,
   COVERT_TASKS,
   DARES,
   DECOY_OFFSET,
@@ -15,11 +16,14 @@ import {
   GAMES,
   gamesFor,
   HEARTBEAT_BANDS,
+  halloweenLive,
   HUNT,
   PRODUCTS,
   RADAR_MS,
   RADAR_USES,
+  RITUAL,
   scriptFor,
+  SILENT_TASKS,
   XP,
   ZONE_ARENAS,
   ZONE_RADII,
@@ -28,7 +32,7 @@ import { bearing, destination, haversine, randomInCircle, SHRINK_WINDOW, zoneRad
 
 export const WHEEL_MS = 3800; // random roulette spin
 export const PICK_MS = 1400; // manual pick reveal
-export const REVEAL_MS = 5000; // role card before the game clock starts
+export const REVEAL_MS = 5000; // countdown after everyone is ready, before the game clock starts
 export const SONAR_COOLDOWN = 12000;
 export const SONAR_WARNING = 3000;
 export const SONAR_BEEP_MS = 2000;
@@ -98,8 +102,9 @@ export function createRoom({ code, host, saved }) {
       arena,
       location: saved?.settings?.location || '',
       mode: saved?.settings?.mode || 'random',
-      game: GAMES[saved?.settings?.game] ? saved.settings.game : 'blind_sonar',
+      game: GAMES[saved?.settings?.game] && !GAMES[saved.settings.game].pack ? saved.settings.game : 'blind_sonar',
       starter: null,
+      pack: 'party',
       zone: defaultZone(arena, saved?.settings?.zone),
     },
     packName: DEFAULT_PACK,
@@ -127,6 +132,30 @@ export const roundClock = (round, now) => ({
   started: now >= round.startsAt,
   remaining: Math.max(0, round.endsAt - now),
 });
+
+/* ---------------------------- Halloween clocks ---------------------------- */
+
+// Weeping Statue: every phone runs the same 3 s light / 5 s blackout cycle from the start.
+export function statueCycle(r, now) {
+  const period = RITUAL.statueLight + RITUAL.statueDark;
+  const t = Math.max(0, now - r.startsAt) % period;
+  const lit = t < RITUAL.statueLight;
+  return { lit, left: lit ? RITUAL.statueLight - t : period - t, n: Math.floor(Math.max(0, now - r.startsAt) / period) };
+}
+
+// Doppelgänger: a 10 s power outage every 60 s. Returns the outage in progress (or null).
+export function blackoutAt(r, now) {
+  const since = now - r.startsAt;
+  if (since < RITUAL.blackoutEvery) return null;
+  const k = Math.floor(since / RITUAL.blackoutEvery);
+  const start = r.startsAt + k * RITUAL.blackoutEvery;
+  return now < start + RITUAL.blackoutMs && start < r.endsAt ? { k, start, end: start + RITUAL.blackoutMs } : null;
+}
+
+export const nextBlackout = (r, now) => r.startsAt + (Math.floor(Math.max(0, now - r.startsAt) / RITUAL.blackoutEvery) + 1) * RITUAL.blackoutEvery;
+
+// Doppelgänger: players still in the game (not taken, not banished).
+export const dopAlive = (r) => r.participants.filter((id) => !r.data.taken[id] && !r.data.banished[id]);
 
 /* ------------------------------ GPS Playzone ----------------------------- */
 
@@ -253,12 +282,14 @@ function zoneTick(s, now) {
 
 /* ------------------------------- round setup ----------------------------- */
 
+const activePack = (s) => (s.settings.pack === 'halloween' && halloweenLive() ? 'halloween' : 'party');
+
 function chooseGame(s, count) {
   if (s.settings.mode === 'manual') {
     const g = GAMES[s.settings.game];
-    return g && count >= g.min ? g : null;
+    return g && count >= g.min && (!g.pack || halloweenLive()) ? g : null;
   }
-  const pool = gamesFor(s.settings.arena, count);
+  const pool = gamesFor(s.settings.arena, count, activePack(s));
   if (!pool.length) return null;
   // Avoid repeating the last game when there is a choice.
   const fresh = pool.filter((g) => g.id !== s.lastGames[s.lastGames.length - 1]);
@@ -270,10 +301,10 @@ function startRound(s, now) {
   const game = chooseGame(s, ids.length);
   if (!game) return false;
 
-  const pool = s.settings.mode === 'random' ? gamesFor(s.settings.arena, ids.length).map((g) => g.id) : [game.id];
+  const pool = s.settings.mode === 'random' ? gamesFor(s.settings.arena, ids.length, activePack(s)).map((g) => g.id) : [game.id];
   const lead = s.settings.mode === 'manual' && s.settings.starter && ids.includes(s.settings.starter) ? s.settings.starter : pick(ids);
   const order = [lead, ...shuffle(ids.filter((id) => id !== lead))];
-  const startsAt = now + (s.settings.mode === 'random' ? WHEEL_MS : PICK_MS) + REVEAL_MS;
+  // Timing (startsAt and everything hung off it) is set by armRound once everyone is ready.
   const roles = {};
   const secret = { players: {}, host: {} };
   let data = {};
@@ -282,7 +313,7 @@ function startRound(s, now) {
   switch (game.id) {
     case 'blind_sonar':
       order.forEach((id, i) => (roles[id] = i === 0 ? 'hunter' : 'survivor'));
-      data = { pulses: 0, pulseAt: null, cooldownUntil: startsAt, nearMiss: {}, nearMissAt: {}, caught: null };
+      data = { pulses: 0, pulseAt: null, cooldownUntil: null, nearMiss: {}, nearMissAt: {}, caught: null };
       break;
     case 'paparazzi': {
       const ring = shuffle(ids);
@@ -301,12 +332,11 @@ function startRound(s, now) {
     }
     case 'red_light':
       order.forEach((id, i) => (roles[id] = i === 0 ? 'watcher' : 'runner'));
-      data = { light: 'green', changedAt: startsAt, flips: 0, out: {}, winner: null };
+      data = { light: 'green', changedAt: null, flips: 0, out: {}, winner: null };
       break;
     case 'hot_potato':
       ids.forEach((id) => (roles[id] = 'player'));
-      data = { holder: lead, since: startsAt, passes: 0, dare: pick(DARES), exploded: null };
-      secret.host.explodeAt = startsAt + 30000 + Math.floor(Math.random() * 40000);
+      data = { holder: lead, since: null, passes: 0, dare: pick(DARES), exploded: null };
       duration = 90;
       break;
     case 'undercover': {
@@ -327,54 +357,79 @@ function startRound(s, now) {
     }
     case 'hide_seek':
       order.forEach((id, i) => (roles[id] = i === 0 ? 'seeker' : 'hider'));
-      data = { hideUntil: startsAt + game.hideMs, radarLeft: 3, radarAt: null, radarCount: 0, radarCooldown: 0, found: {}, noise: { count: 0, at: 0 } };
+      data = { hideUntil: null, radarLeft: 3, radarAt: null, radarCount: 0, radarCooldown: 0, found: {}, noise: { count: 0, at: 0 } };
       break;
     case 'sardines':
       order.forEach((id, i) => (roles[id] = i === 0 ? 'sardine' : 'hunter'));
-      data = { hideUntil: startsAt + game.hideMs, packed: [], noise: { count: 0, at: 0 } };
+      data = { hideUntil: null, packed: [], noise: { count: 0, at: 0 } };
       break;
-    case 'floor_lava': {
+    case 'floor_lava':
       ids.forEach((id) => (roles[id] = 'player'));
-      // Random lava calls, revealed one at a time by the host (6 s before each).
-      const times = [];
-      let t = startsAt + 15000 + Math.floor(Math.random() * 10000);
-      while (t < startsAt + duration * 1000 - 12000 && times.length < 5) {
-        times.push(t);
-        t += 20000 + Math.floor(Math.random() * 15000);
-      }
-      secret.host.lavaTimes = times;
-      data = { lava: null, checks: {}, proofs: [], total: times.length };
+      data = { lava: null, checks: {}, proofs: [], total: 0 };
       break;
-    }
     case 'zombie_tag':
       order.forEach((id, i) => (roles[id] = i === 0 ? 'zombie' : 'survivor'));
-      data = { zombies: [lead], infectedAt: { [lead]: startsAt }, last: null };
+      data = { zombies: [lead], infectedAt: {}, last: null };
       break;
     case 'marco_polo':
       order.forEach((id, i) => (roles[id] = i === 0 ? 'marco' : 'polo'));
-      data = { marcos: 0, marcoAt: null, cooldownUntil: startsAt, tagged: {} };
+      data = { marcos: 0, marcoAt: null, cooldownUntil: null, tagged: {} };
       break;
+    /* ---- Halloween Rituals ---- */
+    case 'midnight_man':
+      order.forEach((id, i) => (roles[id] = i === 0 ? 'midnight' : 'candle'));
+      data = { cooldownUntil: null, out: {}, exposed: {}, exposures: {}, caught: {}, blown: 0, relit: 0, last: null };
+      break;
+    case 'weeping_statue':
+      order.forEach((id, i) => (roles[id] = i === 0 ? 'statue' : 'watcher'));
+      data = { tagged: {}, moves: 0, moveAt: 0, moveCycle: -1 };
+      break;
+    case 'daruma': {
+      order.forEach((id, i) => (roles[id] = i === 0 ? 'shadow' : 'walker'));
+      const tasks = {};
+      order.slice(1).forEach((id) => (tasks[id] = shuffle(CHECKPOINTS).slice(0, 3)));
+      data = { tasks, done: {}, tomare: {}, tomareAt: {}, frozenUntil: 0, frozenBy: null, freezes: 0, caught: {}, shots: [] };
+      break;
+    }
+    case 'dead_silence': {
+      order.forEach((id, i) => (roles[id] = i === 0 ? 'hunter' : 'mouse'));
+      const tasks = {};
+      order.slice(1).forEach((id) => (tasks[id] = shuffle(SILENT_TASKS).slice(0, 3)));
+      data = { tasks, done: {}, noise: { count: 0, at: 0 }, noiseBy: {}, caught: {} };
+      break;
+    }
+    case 'doppelganger': {
+      const dop = pick(order.slice(1).length ? order.slice(1) : order);
+      ids.forEach((id) => (roles[id] = 'explorer'));
+      secret.players[dop] = { doppelganger: true };
+      secret.host.dopId = dop;
+      data = { taken: {}, banished: {}, accuse: {}, claimedIn: {}, found: null };
+      break;
+    }
     default:
       return false;
   }
 
   const z = s.settings.zone;
   const zoned = ZONE_ARENAS.includes(s.settings.arena) && z?.on && validPoint(z.center);
-  const endsAt = startsAt + duration * 1000;
-  const playFrom = startsAt + (game.hideMs || 0);
   if (zoned) secret.host = { ...secret.host, pos: {}, trails: {}, hb: {}, decoys: {}, ghost: {}, ghostUsed: {}, scan: null, radarLog: [], outLog: [] };
 
   s.round = {
     n: (s.round?.n || 0) + 1,
     spinId: rid(),
     spunAt: now,
+    revealAt: now + (s.settings.mode === 'random' ? WHEEL_MS : PICK_MS), // wheel / pick done → briefing
+    stage: 'brief', // brief (Mission Briefing & ready-up) → live
+    ready: {}, // id -> when they tapped "I understand the rules — ready"
+    lead,
+    duration,
     mode: s.settings.mode,
     pool,
     game: game.id,
     arena: s.settings.arena,
     location: s.settings.location.trim(),
-    startsAt,
-    endsAt,
+    startsAt: null,
+    endsAt: null,
     participants: ids,
     roles,
     data,
@@ -382,7 +437,7 @@ function startRound(s, now) {
     strikes: {}, // violations per player this round
     noiseAt: {},
     ...(zoned && {
-      zone: { center: z.center, radius: z.radius, shrink: z.shrink, sim: z.sim, shrinkStart: Math.max(playFrom, endsAt - SHRINK_WINDOW) },
+      zone: { center: z.center, radius: z.radius, shrink: z.shrink, sim: z.sim, shrinkStart: null },
       hunt: !!HUNT[game.id],
       zoneOuts: {}, // id -> server time the 10 s countdown hits zero
       zoneRevealed: {}, // id -> when their live position went public
@@ -390,7 +445,7 @@ function startRound(s, now) {
       radarUses: {},
       radar: [], // public radar alerts (no positions)
       drop: null,
-      dropAt: playFrom + Math.round((endsAt - playFrom) / 2),
+      dropAt: null,
     }),
   };
   s.secret = secret;
@@ -398,6 +453,84 @@ function startRound(s, now) {
   s.phase = 'round';
   s.lastGames = [...s.lastGames, game.id].slice(-3);
   return true;
+}
+
+// Everyone is ready (or the host forced it): start the countdown and hang every timer off it.
+function armRound(s, now) {
+  const r = s.round;
+  const d = r.data;
+  const game = GAMES[r.game];
+  const startsAt = now + REVEAL_MS;
+  r.stage = 'live';
+  r.armedAt = now;
+  r.startsAt = startsAt;
+  r.endsAt = startsAt + r.duration * 1000;
+  switch (r.game) {
+    case 'blind_sonar':
+    case 'marco_polo':
+      d.cooldownUntil = startsAt;
+      break;
+    case 'red_light':
+      d.changedAt = startsAt;
+      break;
+    case 'hot_potato':
+      d.since = startsAt;
+      s.secret.host.explodeAt = startsAt + 30000 + Math.floor(Math.random() * 40000);
+      break;
+    case 'hide_seek':
+    case 'sardines':
+      d.hideUntil = startsAt + game.hideMs;
+      break;
+    case 'floor_lava': {
+      // Random lava calls, revealed one at a time by the host (6 s before each).
+      const times = [];
+      let t = startsAt + 15000 + Math.floor(Math.random() * 10000);
+      while (t < r.endsAt - 12000 && times.length < 5) {
+        times.push(t);
+        t += 20000 + Math.floor(Math.random() * 15000);
+      }
+      s.secret.host.lavaTimes = times;
+      d.total = times.length;
+      break;
+    }
+    case 'zombie_tag':
+      d.infectedAt = { [d.zombies[0]]: startsAt };
+      break;
+    case 'midnight_man':
+      d.cooldownUntil = startsAt + 10000; // the candles get a head start into the dark
+      break;
+    default:
+      break;
+  }
+  if (r.zone) {
+    const playFrom = startsAt + (game.hideMs || 0);
+    r.zone.shrinkStart = Math.max(playFrom, r.endsAt - SHRINK_WINDOW);
+    r.dropAt = playFrom + Math.round((r.endsAt - playFrom) / 2);
+  }
+}
+
+// Host clock work for the rituals. Returns true when something visible changed.
+function ritualTick(s, now) {
+  const r = s.round;
+  if (r.game !== 'midnight_man' || now < r.startsAt) return false;
+  const d = r.data;
+  let changed = false;
+  // A candle not relit within 10 s: the phone shrieks and strobes until it is relit.
+  Object.entries(d.out).forEach(([id, o]) => {
+    if (now < o.deadline || d.exposed[id]) return;
+    d.exposed[id] = now;
+    d.exposures[id] = (d.exposures[id] || 0) + 1;
+    changed = true;
+  });
+  return changed;
+}
+
+// The countdown only starts once every connected player has tapped Ready.
+function maybeArm(s, now) {
+  const r = s.round;
+  if (s.phase !== 'round' || r?.stage !== 'brief') return;
+  const here = r.participants.filter((id) => s.players.find((p) => p.id === id)?.connected);
+  if (here.length && here.every((id) => r.ready[id])) armRound(s, now);
 }
 
 /* -------------------------------- scoring -------------------------------- */
@@ -640,6 +773,119 @@ function finish(s, now, outcome) {
       reveal.tagged = tagged;
       break;
     }
+    /* ---- Halloween Rituals ---- */
+    case 'midnight_man': {
+      const mm = r.participants.find((id) => role(id) === 'midnight');
+      const candles = r.participants.filter((id) => id !== mm);
+      const caught = Object.keys(d.caught);
+      const exposures = Object.values(d.exposures).reduce((a, n) => a + n, 0);
+      add(mm, caught.length * XP.midnightCatch + exposures * XP.midnightExpose);
+      Object.entries(d.exposures).forEach(([id, n]) => add(id, n * XP.candleExposed));
+      const alive = candles.filter((id) => !d.caught[id]);
+      caught.forEach((id) => add(id, XP.candleCaught));
+      if (!alive.length) {
+        winners.add(mm);
+        headline = 'The Midnight Man took every candle';
+      } else {
+        alive.forEach((id) => {
+          add(id, XP.candleSurvive);
+          winners.add(id);
+        });
+        headline = `${alive.length} candle${alive.length === 1 ? '' : 's'} burned until 3:33 AM`;
+      }
+      reveal.caught = caught;
+      reveal.blown = d.blown;
+      reveal.exposures = d.exposures;
+      break;
+    }
+    case 'weeping_statue': {
+      const statue = r.participants.find((id) => role(id) === 'statue');
+      const tagged = Object.keys(d.tagged);
+      const alive = r.participants.filter((id) => id !== statue && !d.tagged[id]);
+      add(statue, tagged.length * XP.statueTag + d.moves * XP.statueMoved);
+      tagged.forEach((id) => add(id, XP.statueTagged));
+      if (!alive.length) {
+        winners.add(statue);
+        headline = `${nameOf(s, statue)} reached everyone in the dark`;
+      } else {
+        alive.forEach((id) => {
+          add(id, XP.statueSurvive);
+          winners.add(id);
+        });
+        headline = `${alive.length} survivor${alive.length === 1 ? '' : 's'} never blinked`;
+      }
+      reveal.tagged = tagged;
+      reveal.moves = d.moves;
+      break;
+    }
+    case 'daruma': {
+      const shadow = r.participants.find((id) => role(id) === 'shadow');
+      const walkers = r.participants.filter((id) => id !== shadow);
+      const caught = Object.keys(d.caught);
+      add(shadow, caught.length * XP.shadowCatch);
+      walkers.forEach((id) => {
+        add(id, (d.done[id]?.length || 0) * XP.checkpoint + Math.min(RITUAL.tomareUses, d.tomare[id] || 0) * XP.tomare);
+        if (d.caught[id]) add(id, XP.walkerCaught);
+        else {
+          add(id, XP.walkerSurvive);
+          winners.add(id);
+        }
+      });
+      if (!walkers.some((id) => !d.caught[id])) {
+        winners.add(shadow);
+        headline = 'The Shadow caught every walker';
+      } else headline = outcome === 'escaped' ? 'Every walker reached their checkpoints' : `${walkers.filter((id) => !d.caught[id]).length} walker${walkers.filter((id) => !d.caught[id]).length === 1 ? '' : 's'} never turned around`;
+      reveal.caught = caught;
+      reveal.freezes = d.freezes;
+      reveal.shots = d.shots;
+      break;
+    }
+    case 'dead_silence': {
+      const hunter = r.participants.find((id) => role(id) === 'hunter');
+      const mice = r.participants.filter((id) => id !== hunter);
+      const caught = Object.keys(d.caught);
+      add(hunter, caught.length * XP.silentHunt);
+      mice.forEach((id) => {
+        const done = d.done[id]?.length || 0;
+        add(id, done * XP.silentTask + (d.noiseBy[id] || 0) * XP.silentNoise);
+        if (d.caught[id]) add(id, XP.silentCaught);
+        else {
+          if (done >= 3) add(id, XP.silentAll);
+          winners.add(id);
+        }
+      });
+      if (!mice.some((id) => !d.caught[id])) {
+        winners.add(hunter);
+        headline = `${nameOf(s, hunter)} heard every one of you`;
+      } else headline = outcome === 'escaped' ? 'Every ritual finished in silence' : `${mice.filter((id) => !d.caught[id]).length} survivor${mice.filter((id) => !d.caught[id]).length === 1 ? '' : 's'} stayed silent`;
+      reveal.caught = caught;
+      reveal.noise = d.noiseBy;
+      break;
+    }
+    case 'doppelganger': {
+      const dop = s.secret.host.dopId;
+      const taken = Object.keys(d.taken);
+      const alive = dopAlive(r).filter((id) => id !== dop);
+      if (d.found) {
+        alive.forEach((id) => {
+          add(id, XP.dopFound);
+          winners.add(id);
+        });
+        taken.forEach((id) => add(id, XP.explorerTaken));
+        add(dop, taken.length * 100);
+        headline = `The squad unmasked ${nameOf(s, dop)}`;
+      } else {
+        add(dop, XP.dopSurvive + taken.length * XP.dopVictim);
+        alive.forEach((id) => add(id, XP.explorerSurvive));
+        winners.add(dop);
+        secretWins[dop] = 1;
+        headline = `${nameOf(s, dop)} was the Doppelgänger all along`;
+      }
+      reveal.doppelganger = dop;
+      reveal.taken = taken;
+      reveal.banished = Object.keys(d.banished);
+      break;
+    }
     default:
       break;
   }
@@ -720,7 +966,7 @@ export function reduce(prev, actorId, a, now = Date.now()) {
   const isHost = actorId === s.hostId;
   const find = (id) => s.players.find((p) => p.id === id);
   const r = s.round;
-  const inPlay = s.phase === 'round' && r && now >= r.startsAt;
+  const inPlay = s.phase === 'round' && r?.stage === 'live' && now >= r.startsAt;
   const isPlayer = r?.participants.includes(actorId);
   const myRole = r?.roles[actorId];
 
@@ -739,6 +985,7 @@ export function reduce(prev, actorId, a, now = Date.now()) {
       const p = find(a.id);
       if (!p || !p.connected) return prev;
       p.connected = false;
+      maybeArm(s, now); // nobody waits for a phone that dropped out of the briefing
       break;
     }
     case 'leave': {
@@ -746,11 +993,13 @@ export function reduce(prev, actorId, a, now = Date.now()) {
       if (!p || p.isHost) return prev;
       if (s.phase === 'lobby') s.players = s.players.filter((x) => x.id !== a.id);
       else p.connected = false;
+      maybeArm(s, now);
       break;
     }
     case 'remove': {
       if (!isHost || a.id === s.hostId) return prev;
       s.players = s.players.filter((p) => p.id !== a.id);
+      maybeArm(s, now);
       break;
     }
 
@@ -763,6 +1012,7 @@ export function reduce(prev, actorId, a, now = Date.now()) {
       if (a.mode === 'random' || a.mode === 'manual') next.mode = a.mode;
       if (a.game && GAMES[a.game]) next.game = a.game;
       if ('starter' in a) next.starter = a.starter || null;
+      if (a.pack === 'party' || (a.pack === 'halloween' && halloweenLive(now))) next.pack = a.pack;
       if (a.arena && a.arena !== s.settings.arena && DEFAULT_RADIUS[a.arena]) next.zone = { ...next.zone, radius: DEFAULT_RADIUS[a.arena] };
       if (a.zone && typeof a.zone === 'object') {
         const z = { ...next.zone };
@@ -786,9 +1036,23 @@ export function reduce(prev, actorId, a, now = Date.now()) {
       break;
     }
 
+    /* ---- Mission Briefing ready-up gate ---- */
+    case 'ready': {
+      if (s.phase !== 'round' || r.stage !== 'brief' || !isPlayer || now < r.revealAt - 500) return prev;
+      if (a.on === false) delete r.ready[actorId];
+      else r.ready[actorId] = now;
+      maybeArm(s, now);
+      break;
+    }
+    case 'forceStart': {
+      if (!isHost || s.phase !== 'round' || r.stage !== 'brief') return prev;
+      armRound(s, now);
+      break;
+    }
+
     /* ---- shared ---- */
     case 'tick': {
-      if (!r || s.phase !== 'round') return prev;
+      if (!r || s.phase !== 'round' || r.stage !== 'live') return prev;
       const zoneChanged = r.zone && now >= r.startsAt ? zoneTick(s, now) : false;
       const nextLava = r.game === 'floor_lava' ? s.secret.host.lavaTimes.find((t) => t > (r.data.lava?.at || 0)) : null;
       if (r.game === 'hot_potato' && (now >= s.secret.host.explodeAt || now >= r.endsAt)) {
@@ -798,11 +1062,11 @@ export function reduce(prev, actorId, a, now = Date.now()) {
         endPlay(s, now, 'time');
       } else if (nextLava && now >= nextLava - 6000) {
         r.data.lava = { n: (r.data.lava?.n || 0) + 1, at: nextLava };
-      } else if (!zoneChanged) return prev;
+      } else if (!ritualTick(s, now) && !zoneChanged) return prev;
       break;
     }
     case 'end': {
-      if (!r || s.phase !== 'round') return prev;
+      if (!r || s.phase !== 'round' || r.stage !== 'live') return prev;
       const directorCanEnd = r.game === 'teleprompter' && myRole === 'director';
       if (!isHost && !directorCanEnd) return prev;
       endPlay(s, now, 'host');
@@ -905,6 +1169,26 @@ export function reduce(prev, actorId, a, now = Date.now()) {
       break;
     }
     case 'accuse': {
+      if (r?.game === 'doppelganger') {
+        // Live majority vote among the players still standing.
+        const d = r.data;
+        const alive = dopAlive(r);
+        if (!inPlay || !alive.includes(actorId) || a.id === actorId || (a.id && !alive.includes(a.id))) return prev;
+        if (a.id) d.accuse[actorId] = a.id;
+        else delete d.accuse[actorId];
+        const votes = Object.values(d.accuse).filter((id) => id === a.id).length;
+        if (a.id && votes >= Math.floor(alive.length / 2) + 1) {
+          d.accuse = {};
+          if (a.id === s.secret.host.dopId) {
+            d.found = a.id;
+            finish(s, now, 'found');
+          } else {
+            d.banished[a.id] = now; // an innocent explorer is voted out
+            if (dopAlive(r).filter((id) => id !== s.secret.host.dopId).length <= 1) finish(s, now, 'banished');
+          }
+        }
+        break;
+      }
       if (s.phase !== 'review' || r.game !== 'undercover' || !isPlayer || !r.participants.includes(a.id) || a.id === actorId) return prev;
       r.data.votes[actorId] = a.id;
       if (r.participants.filter((id) => find(id)?.connected).every((id) => r.data.votes[id])) finish(s, now, 'votes');
@@ -913,7 +1197,7 @@ export function reduce(prev, actorId, a, now = Date.now()) {
 
     /* ---- Snitch Protocol ---- */
     case 'violation': {
-      if (s.phase !== 'round' || !isPlayer || now < r.startsAt || r.violations[actorId]) return prev;
+      if (!inPlay || !isPlayer || r.violations[actorId]) return prev;
       r.violations[actorId] = { reason: String(a.reason || 'stopped').slice(0, 16), at: now };
       r.strikes[actorId] = (r.strikes[actorId] || 0) + 1;
       break;
@@ -924,9 +1208,11 @@ export function reduce(prev, actorId, a, now = Date.now()) {
       break;
     }
     case 'noise': {
-      if (!inPlay || !isPlayer || now - (r.noiseAt[actorId] || 0) < 4000 || !r.data.noise) return prev;
+      const gap = r?.game === 'dead_silence' ? 2000 : 4000;
+      if (!inPlay || !isPlayer || now - (r.noiseAt[actorId] || 0) < gap || !r.data.noise) return prev;
       r.noiseAt[actorId] = now;
       r.data.noise = { count: r.data.noise.count + 1, at: now, by: actorId };
+      if (r.data.noiseBy) r.data.noiseBy[actorId] = (r.data.noiseBy[actorId] || 0) + 1;
       break;
     }
 
@@ -996,6 +1282,106 @@ export function reduce(prev, actorId, a, now = Date.now()) {
       break;
     }
 
+    /* ---- The Midnight Man ---- */
+    case 'extinguish': {
+      const d = r?.data;
+      if (!inPlay || r.game !== 'midnight_man' || myRole !== 'midnight' || now < d.cooldownUntil) return prev;
+      const lit = r.participants.filter((id) => r.roles[id] === 'candle' && !d.caught[id] && !d.out[id] && find(id)?.connected);
+      if (!lit.length) return prev;
+      const target = lit.includes(a.id) ? a.id : pick(lit);
+      d.out[target] = { at: now, deadline: now + RITUAL.relightMs };
+      d.cooldownUntil = now + RITUAL.extinguishCooldown;
+      d.blown += 1;
+      d.last = { id: target, at: now };
+      break;
+    }
+    case 'relight': {
+      const d = r?.data;
+      if (!inPlay || r.game !== 'midnight_man' || !d.out[actorId]) return prev;
+      delete d.out[actorId];
+      delete d.exposed[actorId];
+      d.relit += 1;
+      break;
+    }
+
+    /* ---- Weeping Statue ---- */
+    case 'statueMoved': {
+      const d = r?.data;
+      if (!inPlay || r.game !== 'weeping_statue' || myRole !== 'statue') return prev;
+      const c = statueCycle(r, now);
+      // Only counts well inside a light window, once per window.
+      if (!c.lit || c.left > RITUAL.statueLight - 500 || d.moveCycle === c.n) return prev;
+      d.moves += 1;
+      d.moveAt = now;
+      d.moveCycle = c.n;
+      break;
+    }
+
+    /* ---- Daruma-san ---- */
+    case 'checkpoint': {
+      const d = r?.data;
+      if (!inPlay || r.game !== 'daruma' || myRole !== 'walker' || d.caught[actorId] || !d.tasks[actorId]?.[a.i] || d.done[actorId]?.includes(a.i)) return prev;
+      d.done[actorId] = [...(d.done[actorId] || []), a.i];
+      const walkers = r.participants.filter((id) => r.roles[id] === 'walker' && !d.caught[id]);
+      if (walkers.length && walkers.every((id) => d.done[id]?.length >= 3)) finish(s, now, 'escaped');
+      break;
+    }
+    case 'tomare': {
+      const d = r?.data;
+      if (!inPlay || r.game !== 'daruma' || myRole !== 'walker' || d.caught[actorId]) return prev;
+      if ((d.tomare[actorId] || 0) >= RITUAL.tomareUses || now - (d.tomareAt[actorId] || 0) < RITUAL.tomareCooldown) return prev;
+      d.tomare[actorId] = (d.tomare[actorId] || 0) + 1;
+      d.tomareAt[actorId] = now;
+      d.frozenUntil = now + RITUAL.tomareFreeze;
+      d.frozenBy = actorId;
+      d.freezes += 1;
+      if (a.mediaId) d.shots.push({ id: String(a.mediaId).slice(0, 32), by: actorId, at: now });
+      break;
+    }
+
+    /* ---- shared Halloween catch: hunter taps who they caught, or the caught player reports it ---- */
+    case 'caughtBy': {
+      const d = r?.data;
+      const catcher = { midnight_man: 'midnight', weeping_statue: 'statue', daruma: 'shadow', dead_silence: 'hunter' }[r?.game];
+      if (!inPlay || !catcher) return prev;
+      const victim = myRole === catcher ? a.id : actorId; // hunter names them, or they own up
+      const prey = r.participants.filter((id) => r.roles[id] !== catcher);
+      const caught = r.game === 'weeping_statue' ? d.tagged : d.caught;
+      if (!prey.includes(victim) || caught[victim]) return prev;
+      if (myRole !== catcher && victim !== actorId) return prev;
+      if (r.game === 'daruma' && myRole === catcher && now < d.frozenUntil) return prev; // frozen by TOMARE
+      caught[victim] = now;
+      if (r.game === 'midnight_man') {
+        delete d.out[victim];
+        delete d.exposed[victim];
+      }
+      if (prey.every((id) => caught[id])) finish(s, now, 'all-caught');
+      break;
+    }
+
+    /* ---- Dead Silence ---- */
+    case 'silentTask': {
+      const d = r?.data;
+      if (!inPlay || r.game !== 'dead_silence' || myRole !== 'mouse' || d.caught[actorId] || !d.tasks[actorId]?.[a.i] || d.done[actorId]?.includes(a.i)) return prev;
+      d.done[actorId] = [...(d.done[actorId] || []), a.i];
+      const mice = r.participants.filter((id) => r.roles[id] === 'mouse' && !d.caught[id]);
+      if (mice.length && mice.every((id) => d.done[id]?.length >= 3)) finish(s, now, 'escaped');
+      break;
+    }
+
+    /* ---- The Doppelgänger ---- */
+    case 'claim': {
+      const d = r?.data;
+      if (!inPlay || r.game !== 'doppelganger' || !s.secret.players[actorId]?.doppelganger) return prev;
+      const b = blackoutAt(r, now);
+      const alive = dopAlive(r);
+      if (!b || d.claimedIn[b.k] || a.id === actorId || !alive.includes(a.id) || !alive.includes(actorId)) return prev;
+      d.taken[a.id] = now;
+      d.claimedIn[b.k] = a.id;
+      Object.keys(d.accuse).forEach((k) => (d.accuse[k] === a.id || k === a.id) && delete d.accuse[k]);
+      if (dopAlive(r).filter((id) => id !== actorId).length <= 1) finish(s, now, 'taken');
+      break;
+    }
     /* ---- GPS Playzone ---- */
     case 'pos': {
       if (s.phase !== 'round' || !r.zone || !isPlayer) return prev;
@@ -1005,7 +1391,7 @@ export function reduce(prev, actorId, a, now = Date.now()) {
       h.pos[actorId] = p;
       addTrail(h, actorId, p);
       let visible = false;
-      if (now >= r.startsAt) {
+      if (r.stage === 'live' && now >= r.startsAt) {
         visible = checkSide(s, actorId, now);
         if (r.hunt) {
           if (updateHeartbeat(s)) visible = true;

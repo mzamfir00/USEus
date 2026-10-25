@@ -47,7 +47,7 @@ export function RedLightWatcher({ view, serverNow, intent, onLeave }) {
 
 // Motion detection from the shared sensor feed; without live readings (desktop, denied or
 // not yet granted) the hold-still button referees instead.
-function useMotion(onMove) {
+export function useMotion(onMove) {
   const mode = useMotionMode();
   const [live, setLive] = useState(() => motionLive());
   const cb = useRef(onMove);

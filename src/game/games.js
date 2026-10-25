@@ -222,10 +222,152 @@ export const GAMES = {
       polo: { label: 'Polo', brief: 'Film Marco from your spot. Your phone answers every Marco with a loud “Polo!” and a flash — move between calls.' },
     },
   },
+  /* ------------------------ Halloween Rituals (seasonal) ------------------------ */
+  midnight_man: {
+    id: 'midnight_man',
+    pack: 'halloween',
+    short: 'Midnight Man',
+    film: ['candle'],
+    name: 'The Midnight Man',
+    tagline: 'Keep your candle lit until 3:33 AM. He blows them out.',
+    arenas: ['indoor', 'park', 'forest'],
+    min: 2,
+    duration: 200,
+    dark: true,
+    starter: 'The Midnight Man',
+    roles: {
+      midnight: { label: 'The Midnight Man', brief: 'Stalk the candles in the dark. Blow one out every 25 seconds, then catch the exposed by touch.' },
+      candle: { label: 'Survivor', brief: 'Your flashlight is your candle. If it goes out, relight it in 10 seconds or your phone shrieks your position.' },
+    },
+  },
+  weeping_statue: {
+    id: 'weeping_statue',
+    pack: 'halloween',
+    short: 'Statue',
+    film: ['watcher'],
+    name: 'Don’t Blink: The Weeping Statue',
+    tagline: '3 seconds of light. 5 seconds of black. It only moves in the dark.',
+    arenas: ['indoor', 'park', 'forest', 'streets'],
+    min: 2,
+    duration: 180,
+    dark: true,
+    starter: 'The Statue',
+    roles: {
+      statue: { label: 'The Statue', brief: 'Move only in the blackout. Freeze in a pose the instant the lights come back. Your phone feels it if you don’t.' },
+      watcher: { label: 'Survivor', brief: 'Film the dark ahead. Your flashlight is on for 3 seconds, off for 5 — every phone in sync.' },
+    },
+  },
+  daruma: {
+    id: 'daruma',
+    pack: 'halloween',
+    short: 'Daruma-san',
+    film: ['walker'],
+    name: 'Daruma-san: The Shadow Behind You',
+    tagline: 'Selfie camera only. Never turn around. Spot it behind you.',
+    arenas: ['indoor', 'park', 'forest', 'streets'],
+    min: 2,
+    duration: 240,
+    dark: true,
+    starter: 'The Shadow',
+    roles: {
+      shadow: { label: 'The Shadow', brief: 'Creep up behind the walkers in silence. When someone yells TOMARE, you freeze for 5 seconds.' },
+      walker: { label: 'Walker', brief: 'Reach your checkpoints filming your own face. Never turn your head. Spot the Shadow in your selfie and call TOMARE.' },
+    },
+  },
+  dead_silence: {
+    id: 'dead_silence',
+    pack: 'halloween',
+    short: 'Dead Silence',
+    film: ['mouse'],
+    name: 'Dead Silence: The Quiet Ritual',
+    tagline: 'Three noisy tasks. One blindfolded hunter. A whisper sets you off.',
+    arenas: ['indoor'],
+    min: 2,
+    duration: 210,
+    dark: true,
+    starter: 'The Hunter',
+    roles: {
+      hunter: { label: 'The Hunter', brief: 'Blindfolded in the centre of the room. Listen. Lunge. Every noise chimes from the guilty phone.' },
+      mouse: { label: 'Survivor', brief: 'Do your 3 noisy tasks while filming. Your mic is ultra-sensitive: a breath or a creak chimes and flashes.' },
+    },
+  },
+  doppelganger: {
+    id: 'doppelganger',
+    pack: 'halloween',
+    short: 'Doppelgänger',
+    film: ['explorer'],
+    name: 'The Doppelgänger',
+    tagline: 'One of you isn’t who they seem. Every 60 s the power dies.',
+    arenas: ['indoor', 'park', 'forest'],
+    min: 3,
+    duration: 300,
+    dark: true,
+    roles: {
+      explorer: { label: 'Explorer', brief: 'Explore in pairs with your flashlight on. Every minute the power cuts for 10 seconds. Vote out the impostor.' },
+      doppelganger: { label: 'The Doppelgänger', brief: 'Look normal. Only during a blackout can you claim the player standing next to you. Don’t get voted out.' },
+    },
+  },
 };
 
-export const gamesFor = (arena, playerCount) =>
-  Object.values(GAMES).filter((g) => g.arenas.includes(arena) && playerCount >= g.min);
+/* ------------------------------ game packs ------------------------------- */
+
+// Limited-time seasonal pack: playable from October 1 to November 7 every year.
+export const HALLOWEEN = { id: 'halloween', name: 'Halloween Horror Pack', short: 'Halloween Rituals', until: 'Nov 7' };
+export const halloweenLive = (now = Date.now()) => {
+  const d = new Date(now);
+  return d.getMonth() === 9 || (d.getMonth() === 10 && d.getDate() <= 7);
+};
+
+export const PACKS = {
+  party: { id: 'party', name: 'All games', short: 'Party & classics' },
+  halloween: HALLOWEEN,
+};
+
+export const packOf = (g) => g.pack || 'party';
+
+export const gamesFor = (arena, playerCount, pack = 'party') =>
+  Object.values(GAMES).filter((g) => packOf(g) === pack && g.arenas.includes(arena) && playerCount >= g.min);
+
+/* ---------------------------- Halloween rituals --------------------------- */
+
+export const RITUAL = {
+  extinguishCooldown: 25000, // Midnight Man
+  relightMs: 10000,
+  relightTaps: 5,
+  statueLight: 3000, // Weeping Statue: light on…
+  statueDark: 5000, // …then total blackout
+  tomareFreeze: 5000, // Daruma-san
+  tomareCooldown: 12000,
+  tomareUses: 3,
+  blackoutEvery: 60000, // Doppelgänger
+  blackoutMs: 10000,
+};
+
+export const CHECKPOINTS = [
+  'Touch the handle of the furthest door',
+  'Stand in a doorway for 5 seconds',
+  'Sit on a chair, count to 3, stand up',
+  'Switch a light on and off once',
+  'Touch the coldest surface you can find',
+  'Walk to the darkest corner and back',
+  'Open and close a cupboard or drawer',
+  'Find something soft and hold it up',
+  'Touch a window or a wall mirror',
+  'Walk backwards 10 steps along a wall',
+];
+
+export const SILENT_TASKS = [
+  'Walk past the Hunter and swap places with another player',
+  'Pick up a set of keys and carry them across the room',
+  'Open a door and close it again',
+  'Pour a glass of water',
+  'Unzip and zip a bag or jacket',
+  'Move a chair one metre',
+  'Take off one shoe and put it back on',
+  'Open a packet or a crinkly wrapper',
+  'Fold a towel or a piece of clothing',
+  'Touch the Hunter’s chair without being heard',
+];
 
 /* ------------------------------ teleprompter ----------------------------- */
 
@@ -354,4 +496,29 @@ export const XP = {
   radarPing: -150, // GPS Playzone: hunter radar ping
   zoneOut: -200, // GPS Playzone: 10 s outside the zone
   supplyDrop: 300, // GPS Playzone: first hider to the drop
+  // Halloween Rituals
+  midnightCatch: 150,
+  midnightExpose: 50,
+  candleSurvive: 300,
+  candleCaught: -50,
+  candleExposed: -50,
+  statueTag: 150,
+  statueMoved: -50,
+  statueSurvive: 250,
+  statueTagged: -50,
+  checkpoint: 100,
+  tomare: 50,
+  walkerSurvive: 200,
+  walkerCaught: -50,
+  shadowCatch: 150,
+  silentTask: 100,
+  silentAll: 150,
+  silentNoise: -25,
+  silentCaught: -50,
+  silentHunt: 150,
+  dopFound: 300,
+  dopVictim: 200,
+  dopSurvive: 300,
+  explorerSurvive: 100,
+  explorerTaken: 50,
 };

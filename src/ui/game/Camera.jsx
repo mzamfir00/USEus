@@ -55,8 +55,36 @@ function CtlButton({ label, onClick, children, on = false, disabled = false }) {
 //   noiseMeter   live mic level; loud for >1 s → torch flash + chirp + onNoise()
 //   pulseButton  hunters get a flash-pulse button; beacon = slow torch strobe (zombies)
 //   onPan        called when the picture changes a lot (camera panned)
+//   torch        game-controlled flashlight (true / false); hides the manual toggle
+//   lockFacing   'user' | 'environment': no flipping (Daruma-san's selfie-only walkers)
+//   lensCheck    false for pitch-dark games, where a black picture is not a covered lens
+//   glow         soft screen glow that lights a selfie face in the dark
+//   noise*       noise snitch tuning: threshold dBFS, 100 ms samples to trigger, cue, flash, cooldown
 const Camera = forwardRef(function Camera(
-  { hud, record = false, micDefault = false, flash = false, children, enforce = false, violation = null, onResume, noiseMeter = false, onNoise, pulseButton = false, beacon = false, onPan },
+  {
+    hud,
+    record = false,
+    micDefault = false,
+    flash = false,
+    children,
+    enforce = false,
+    violation = null,
+    onResume,
+    noiseMeter = false,
+    onNoise,
+    pulseButton = false,
+    beacon = false,
+    onPan,
+    torch,
+    lockFacing,
+    lensCheck = true,
+    glow = false,
+    noiseDb = NOISE_DB,
+    noiseHold = 10,
+    noiseCue = 'chirp',
+    noiseFlashMs = 1000,
+    noiseCooldown = 6000,
+  },
   ref
 ) {
   const intentCtx = useContext(IntentContext);
@@ -90,7 +118,7 @@ const Camera = forwardRef(function Camera(
     return { W: 720, H: Math.round(720 * ratio) };
   });
   const [status, setStatus] = useState('loading'); // loading | live | off
-  const [facing, setFacing] = useState('environment');
+  const [facing, setFacing] = useState(lockFacing || 'environment');
   const [restart, setRestart] = useState(0);
   const [micOn, setMicOn] = useState(micDefault || noiseMeter);
   const [micState, setMicState] = useState('off'); // off | loading | on | denied
@@ -111,8 +139,13 @@ const Camera = forwardRef(function Camera(
   facingRef.current = facing;
   const torchCapRef = useRef(torchCap);
   torchCapRef.current = torchCap;
-  const torchOnRef = useRef(torchOn);
-  torchOnRef.current = torchOn;
+  const lit = torch ?? torchOn; // game-forced flashlight wins over the manual toggle
+  const litRef = useRef(lit);
+  litRef.current = lit;
+  const lensRef = useRef(lensCheck);
+  lensRef.current = lensCheck;
+  const noiseRef = useRef({ noiseDb, noiseHold, noiseCue, noiseFlashMs, noiseCooldown });
+  noiseRef.current = { noiseDb, noiseHold, noiseCue, noiseFlashMs, noiseCooldown };
   const penalty = enforce ? internal || violation : violation;
   const penaltyRef = useRef(penalty);
   penaltyRef.current = penalty;
@@ -123,6 +156,10 @@ const Camera = forwardRef(function Camera(
     setNotice(text);
     setTimeout(() => setNotice(''), 2600);
   };
+
+  useEffect(() => {
+    if (lockFacing && facing !== lockFacing) setFacing(lockFacing);
+  }, [lockFacing, facing]);
 
   /* --------------------------------- camera -------------------------------- */
   useEffect(() => {
@@ -211,11 +248,11 @@ const Camera = forwardRef(function Camera(
 
   // Final torch = manual flashlight (rear camera) OR any active pulse / strobe.
   const syncTorch = useCallback(() => {
-    torchWant.current = (torchOnRef.current && facingRef.current === 'environment') || transient.current;
+    torchWant.current = (litRef.current && facingRef.current === 'environment') || transient.current;
     pushTorch();
   }, [pushTorch]);
 
-  useEffect(syncTorch, [torchOn, facing, status, torchCap, syncTorch]);
+  useEffect(syncTorch, [lit, facing, status, torchCap, syncTorch]);
 
   // Brief light: hardware torch when available, otherwise a white screen flash.
   const flashFor = useCallback(
@@ -473,7 +510,11 @@ const Camera = forwardRef(function Camera(
       diff = prev ? diff / 768 : 0;
       prev = lum;
       if (diff > PAN_DIFF) onPanRef.current?.();
-      if (!enforceRef.current) return;
+      if (!enforceRef.current || !lensRef.current) {
+        coveredSince = null;
+        blockedNow.current = false;
+        return;
+      }
 
       const still = stillFor(); // null = no motion sensor data available
       const blocked = std < BLOCK_STD && (still === null || still > SAMPLE_MS);
@@ -579,22 +620,24 @@ const Camera = forwardRef(function Camera(
       for (let i = 0; i < buf.length; i += 1) sum += buf[i] * buf[i];
       const db = 20 * Math.log10(Math.sqrt(sum / buf.length) + 1e-8);
       const level = Math.max(0, Math.min(1, (db + 70) / 60));
+      const n = noiseRef.current;
       if (meterBar.current) {
         meterBar.current.style.height = `${level * 100}%`;
-        meterBar.current.style.background = db > NOISE_DB ? '#fff' : 'rgba(255,255,255,0.55)';
+        meterBar.current.style.background = db > n.noiseDb ? '#fff' : 'rgba(255,255,255,0.55)';
       }
       const now = Date.now();
       if (now < quietUntil || penaltyRef.current) {
         loud = 0;
         return;
       }
-      loud = db > NOISE_DB ? loud + 1 : Math.max(0, loud - 1);
-      if (loud >= 10) {
-        // Noise for >1 s: the phone snitches with a flash and a chirp.
+      loud = db > n.noiseDb ? loud + 1 : Math.max(0, loud - 1);
+      if (loud >= n.noiseHold) {
+        // Sustained noise: the phone snitches with a flash and a sound cue.
         loud = 0;
-        quietUntil = now + 6000;
-        flashFor(1000);
-        Synth.chirp();
+        quietUntil = now + n.noiseCooldown;
+        flashFor(n.noiseFlashMs);
+        if (n.noiseCue === 'musicbox') Synth.musicBox();
+        else Synth.chirp();
         buzz(120);
         onNoiseRef.current?.();
       }
@@ -618,32 +661,35 @@ const Camera = forwardRef(function Camera(
     live: status === 'live',
   }));
 
-  const screenLight = torchOn && (facing === 'user' || !torchCap);
+  const screenLight = lit && (facing === 'user' || !torchCap);
 
   return (
-    <div className="absolute inset-0 overflow-hidden bg-black">
+    <div className="absolute inset-0 overflow-hidden bg-black" data-torch={lit ? 'on' : 'off'} data-facing={facing}>
       <video ref={video} playsInline muted className="pointer-events-none absolute left-0 top-0 h-px w-px opacity-0" />
       <canvas ref={canvas} width={W} height={H} className="absolute inset-0 h-full w-full object-cover" />
       {screenLight && <div className="pointer-events-none absolute inset-0 z-[5]" style={{ boxShadow: 'inset 0 0 0 22vmin #fff' }} />}
+      {glow && !screenLight && <div className="pointer-events-none absolute inset-0 z-[5]" style={{ boxShadow: 'inset 0 0 0 16vmin rgba(255,255,255,0.16)' }} />}
       {screenFlash && <div className="pointer-events-none absolute inset-0 z-30 bg-white" />}
 
       <div className="absolute right-4 top-[calc(max(150px,calc(env(safe-area-inset-top)+136px))+var(--zone-h,0px))] z-10 flex flex-col items-center gap-2">
-        {status === 'live' && (
+        {status === 'live' && !lockFacing && (
           <CtlButton label="Flip camera" onClick={() => setFacing((f) => (f === 'user' ? 'environment' : 'user'))}>
             <SwitchCamera size={18} />
           </CtlButton>
         )}
-        <CtlButton
-          label={torchOn ? 'Flashlight off' : 'Flashlight on'}
-          on={torchOn}
-          onClick={() => {
-            const next = !torchOn;
-            setTorchOn(next);
-            if (next && !(torchCap && facing === 'environment')) say(facing === 'user' ? 'Front screen light on' : 'No hardware flashlight here — using the screen');
-          }}
-        >
-          {torchOn ? <Flashlight size={18} /> : <FlashlightOff size={18} />}
-        </CtlButton>
+        {torch === undefined && (
+          <CtlButton
+            label={torchOn ? 'Flashlight off' : 'Flashlight on'}
+            on={torchOn}
+            onClick={() => {
+              const next = !torchOn;
+              setTorchOn(next);
+              if (next && !(torchCap && facing === 'environment')) say(facing === 'user' ? 'Front screen light on' : 'No hardware flashlight here — using the screen');
+            }}
+          >
+            {torchOn ? <Flashlight size={18} /> : <FlashlightOff size={18} />}
+          </CtlButton>
+        )}
         {pulseButton && (
           <CtlButton label="Strobe flash pulse" onClick={pulse}>
             <Zap size={18} />
@@ -687,7 +733,7 @@ const Camera = forwardRef(function Camera(
           >
             <div className="relative h-24 w-2.5 overflow-hidden rounded-full border border-white/30 bg-black/50">
               <div ref={meterBar} className="absolute inset-x-0 bottom-0 h-0 rounded-full bg-white/60 transition-[height] duration-100" />
-              <div className="absolute inset-x-0 border-t border-white" style={{ bottom: `${((NOISE_DB + 70) / 60) * 100}%` }} />
+              <div className="absolute inset-x-0 border-t border-white" style={{ bottom: `${((noiseDb + 70) / 60) * 100}%` }} />
             </div>
             <span className="text-[9.5px] font-semibold tracking-wide text-white/80">{micState === 'denied' ? 'NO MIC' : meterArmed ? 'NOISE' : 'TAP'}</span>
           </button>

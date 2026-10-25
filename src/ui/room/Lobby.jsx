@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
-import { Building2, Car, Check, Crosshair, Dices, House, LocateFixed, ShoppingCart, Target, TreePine, Trees, X } from 'lucide-react';
-import { ARENAS, GAMES, gamesFor, HUNT, ZONE_ARENAS, ZONE_RADII } from '../../game/games';
+import { Building2, Car, Check, Crosshair, Dices, Flame, House, LocateFixed, ShoppingCart, Sparkles, Target, TreePine, Trees, X } from 'lucide-react';
+import { ARENAS, GAMES, gamesFor, HALLOWEEN, halloweenLive, HUNT, packOf, ZONE_ARENAS, ZONE_RADII } from '../../game/games';
+import HorrorFx from '../game/HorrorFx';
 import { Avatar, SectionLabel } from '../primitives';
 import LazyMap from '../game/zone/LazyMap';
 
@@ -134,8 +135,16 @@ export default function Lobby({ view, intent, onInvite }) {
   const st = view.settings;
   const [location, setLocation] = useState(st.location);
   const [locating, setLocating] = useState(false);
-  const fits = gamesFor(st.arena, online.length);
+  const seasonal = halloweenLive();
+  const pack = st.pack === 'halloween' && seasonal ? 'halloween' : 'party';
+  const fits = gamesFor(st.arena, online.length, pack);
   const chosen = GAMES[st.game];
+  const packGames = Object.values(GAMES).filter((g) => packOf(g) === pack);
+  const choosePack = (id) => {
+    if (id === pack) return;
+    const first = Object.values(GAMES).find((g) => packOf(g) === id && g.arenas.includes(st.arena)) || Object.values(GAMES).find((g) => packOf(g) === id);
+    set({ pack: id, game: first.id, starter: null });
+  };
   const zoneArena = ZONE_ARENAS.includes(st.arena) && !!st.zone;
   const needsCenter = zoneArena && st.zone.on && !st.zone.center;
   const canStart = (st.mode === 'random' ? fits.length > 0 : online.length >= chosen.min) && !needsCenter;
@@ -245,17 +254,48 @@ export default function Lobby({ view, intent, onInvite }) {
         </button>
       </div>
 
+      {seasonal && (
+        <div className="mt-3 grid grid-cols-2 gap-2" data-packs>
+          <button
+            type="button"
+            disabled={!isHost}
+            aria-pressed={pack === 'party'}
+            onClick={() => choosePack('party')}
+            className={`rounded-[16px] border px-3.5 py-3 text-left transition-colors ${pack === 'party' ? 'border-[var(--fg)] bg-[var(--fg)] text-[var(--bg)]' : 'border-[var(--border)] bg-[var(--card)] disabled:opacity-50'}`}
+          >
+            <Sparkles size={17} />
+            <div className="mt-2 text-[14px] font-semibold">All games</div>
+            <div className={`text-[12px] ${pack === 'party' ? 'opacity-70' : 'muted'}`}>Party & classics · 11</div>
+          </button>
+          <button
+            type="button"
+            disabled={!isHost}
+            aria-pressed={pack === 'halloween'}
+            aria-label={HALLOWEEN.name}
+            onClick={() => choosePack('halloween')}
+            className={`pack-horror relative overflow-hidden rounded-[16px] border px-3.5 py-3 text-left text-white ${pack === 'halloween' ? '!border-white shadow-[0_0_0_1px_#fff]' : 'disabled:opacity-50'}`}
+          >
+            <HorrorFx />
+            <div className="relative">
+              <Flame size={17} className="breathe" />
+              <div className="horror-title mt-1.5 text-[19px] leading-none">Halloween Horror</div>
+              <div className="vhs mt-1 text-[10.5px] text-white/60">5 rituals · until {HALLOWEEN.until}</div>
+            </div>
+          </button>
+        </div>
+      )}
+
       {st.mode === 'random' ? (
         <div className="card mt-3 p-4">
           <div className="text-[14px] font-medium">
-            {fits.length ? `${fits.length} games fit ${ARENAS[st.arena].label.toLowerCase()}` : 'Not enough players for these games yet'}
+            {fits.length ? `${fits.length} ${pack === 'halloween' ? 'rituals' : 'games'} fit ${ARENAS[st.arena].label.toLowerCase()}` : 'Not enough players for these games yet'}
           </div>
           <div className="muted mt-1 text-[13.5px] leading-snug">{fits.map((g) => g.name).join(' · ')}</div>
         </div>
       ) : (
         <>
           <div className="card divide mt-3 overflow-hidden">
-            {Object.values(GAMES).map((g) => {
+            {packGames.map((g) => {
               const on = st.game === g.id;
               const enough = online.length >= g.min;
               const fit = g.arenas.includes(st.arena);

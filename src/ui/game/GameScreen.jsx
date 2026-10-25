@@ -4,6 +4,7 @@ import { FloorLava, HideSeekHider, HideSeekSeeker, MarcoHunter, MarcoPolo, Sardi
 import HotPotato from './HotPotato';
 import { PaparazziReview, PaparazziSniper } from './Paparazzi';
 import { RedLightRunner, RedLightWatcher } from './RedLight';
+import { DarumaShadow, DarumaWalker, Doppelganger, MidnightCandle, MidnightHunter, SilenceHunter, SilenceSurvivor, StatueEntity, StatueWatcher } from './Rituals';
 import { SonarHunter, SonarSurvivor } from './Sonar';
 import { TeleprompterActor, TeleprompterDirector, TeleprompterSaboteur } from './Teleprompter';
 import { UndercoverPlay, UndercoverVote } from './Undercover';
@@ -70,6 +71,16 @@ function RoleScreen({ view, serverNow, intent, media, onLeave }) {
       return <ZombieTag {...props} />;
     case 'marco_polo':
       return role === 'marco' ? <MarcoHunter {...props} /> : <MarcoPolo {...props} />;
+    case 'midnight_man':
+      return role === 'midnight' ? <MidnightHunter {...props} /> : <MidnightCandle {...props} />;
+    case 'weeping_statue':
+      return role === 'statue' ? <StatueEntity {...props} /> : <StatueWatcher {...props} />;
+    case 'daruma':
+      return role === 'shadow' ? <DarumaShadow {...props} /> : <DarumaWalker {...props} />;
+    case 'dead_silence':
+      return role === 'hunter' ? <SilenceHunter {...props} /> : <SilenceSurvivor {...props} />;
+    case 'doppelganger':
+      return <Doppelganger {...props} />;
     default:
       return null;
   }
