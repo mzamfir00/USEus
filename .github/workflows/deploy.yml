@@ -49,9 +49,10 @@ jobs:
         env:
           # Project sites are served from /<repo>/, so assets need that prefix.
           BASE_PATH: ${{ steps.pages.outputs.base_path }}/
-          # Optional cloud database: add these as repository secrets to enable it.
-          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
-          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+          # Cloud database. The publishable key is designed to ship in client code;
+          # repository secrets with the same names override these values.
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL || 'https://qdyinlqunsagypgaugky.supabase.co' }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY || 'sb_publishable_M0InuYBC-lZE68NXXE8Q-w_epXI3Y7U' }}
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
