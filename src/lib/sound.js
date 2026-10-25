@@ -27,6 +27,15 @@ export const Synth = (() => {
     return muted ? null : ctx;
   };
 
+  // Enforcement alarms ignore the sound-effects toggle.
+  const ensureForced = () => {
+    const wasMuted = muted;
+    muted = false;
+    const c = ensure();
+    muted = wasMuted;
+    return c;
+  };
+
   const tone = (c, { type = 'sine', freq, endFreq, start = 0, dur, vol, attack = 0.002, filter }) => {
     const t = c.currentTime + start;
     const osc = c.createOscillator();
@@ -168,6 +177,59 @@ export const Synth = (() => {
       tone(c, { type: 'triangle', freq: 660, dur: 0.09, vol: 0.25 });
       tone(c, { type: 'triangle', freq: 990, dur: 0.12, vol: 0.25, start: 0.08 });
     },
+    // Snitch Protocol penalty: piercing two-tone wail (~1 s), plays even when muted.
+    penalty() {
+      const c = ensureForced();
+      if (!c) return;
+      [0, 0.25, 0.5, 0.75].forEach((s, i) => {
+        tone(c, { type: 'square', freq: i % 2 ? 1850 : 2650, dur: 0.24, vol: 0.5, start: s, attack: 0.003, filter: { type: 'lowpass', freq: 6000 } });
+        tone(c, { type: 'sawtooth', freq: i % 2 ? 925 : 1325, dur: 0.24, vol: 0.25, start: s });
+      });
+    },
+    // Short alert other phones hear when someone gets snitched on.
+    alert() {
+      const c = ensure();
+      if (!c) return;
+      tone(c, { type: 'square', freq: 1320, dur: 0.12, vol: 0.2, filter: { type: 'lowpass', freq: 4000 } });
+      tone(c, { type: 'square', freq: 1760, dur: 0.16, vol: 0.2, start: 0.14, filter: { type: 'lowpass', freq: 4000 } });
+    },
+    // Noise snitch chirp: a quick rising bird-like call.
+    chirp() {
+      const c = ensureForced();
+      if (!c) return;
+      tone(c, { type: 'sine', freq: 2200, endFreq: 3600, dur: 0.12, vol: 0.6 });
+      tone(c, { type: 'sine', freq: 2400, endFreq: 4000, dur: 0.12, vol: 0.6, start: 0.16 });
+    },
+    // Hide & Seek radar pulse heard from a hider's phone.
+    radar() {
+      const c = ensureForced();
+      if (!c) return;
+      [0, 0.35, 0.7].forEach((s) => tone(c, { type: 'sine', freq: 1200, endFreq: 900, dur: 0.3, vol: 0.85, start: s }));
+    },
+    // Marco Polo: a vowel-ish two-note "Po-lo" answer.
+    polo() {
+      const c = ensureForced();
+      if (!c) return;
+      tone(c, { type: 'sawtooth', freq: 330, dur: 0.22, vol: 0.5, filter: { type: 'bandpass', freq: 700, q: 4 } });
+      tone(c, { type: 'sawtooth', freq: 262, dur: 0.3, vol: 0.5, start: 0.24, filter: { type: 'bandpass', freq: 520, q: 4 } });
+    },
+    marco() {
+      const c = ensure();
+      if (!c) return;
+      tone(c, { type: 'sawtooth', freq: 392, dur: 0.22, vol: 0.4, filter: { type: 'bandpass', freq: 800, q: 4 } });
+      tone(c, { type: 'sawtooth', freq: 330, dur: 0.3, vol: 0.4, start: 0.24, filter: { type: 'bandpass', freq: 650, q: 4 } });
+    },
+    infect() {
+      const c = ensure();
+      if (!c) return;
+      tone(c, { type: 'sawtooth', freq: 110, endFreq: 70, dur: 0.8, vol: 0.5, filter: { type: 'lowpass', freq: 600 } });
+      noise(c, { dur: 0.6, vol: 0.3, type: 'bandpass', freq: 300 });
+    },
+    // The running AudioContext (for microphone analysis), regardless of mute.
+    rawContext() {
+      ensureForced();
+      return ctx;
+    },
     whoosh() {
       const c = ensure();
       if (!c) return;
@@ -181,5 +243,20 @@ export const buzz = (pattern) => {
     if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(pattern);
   } catch (e) {
     /* vibration unsupported */
+  }
+};
+
+// Speaks a short word when the browser supports speech synthesis (e.g. "Polo!").
+export const speak = (text) => {
+  try {
+    if (!('speechSynthesis' in window)) return;
+    const u = new SpeechSynthesisUtterance(text);
+    u.rate = 1.05;
+    u.pitch = 1.1;
+    u.volume = 1;
+    window.speechSynthesis.cancel();
+    window.speechSynthesis.speak(u);
+  } catch (e) {
+    /* speech unavailable */
   }
 };

@@ -13,6 +13,8 @@ const ALL = Object.keys(ARENAS);
 export const GAMES = {
   blind_sonar: {
     id: 'blind_sonar',
+    short: 'Sonar',
+    film: ['survivor'], // roles under the Snitch Protocol
     name: 'Blind Sonar',
     tagline: 'One blind hunter. Everyone else films — and beeps.',
     arenas: ['indoor', 'park'],
@@ -33,6 +35,8 @@ export const GAMES = {
   },
   paparazzi: {
     id: 'paparazzi',
+    short: 'Paparazzi',
+    film: [], // roles under the Snitch Protocol
     name: 'Paparazzi Sniper',
     tagline: 'Photograph your secret target before they spot you.',
     arenas: ALL,
@@ -48,6 +52,8 @@ export const GAMES = {
   },
   teleprompter: {
     id: 'teleprompter',
+    short: 'Teleprompter',
+    film: ['director'], // roles under the Snitch Protocol
     name: 'Blind Teleprompter',
     tagline: 'The actor reads a live ad. The squad sabotages the script.',
     arenas: ['supermarket', 'indoor', 'streets'],
@@ -63,6 +69,8 @@ export const GAMES = {
   },
   red_light: {
     id: 'red_light',
+    short: 'Red Light',
+    film: ['runner'], // roles under the Snitch Protocol
     name: 'Red Light Freeze Cam',
     tagline: 'Move on green. Freeze on red. Your phone can tell.',
     arenas: ['park', 'indoor', 'roadtrip', 'streets'],
@@ -77,6 +85,8 @@ export const GAMES = {
   },
   hot_potato: {
     id: 'hot_potato',
+    short: 'Hot Potato',
+    film: [], // roles under the Snitch Protocol
     name: 'Timebomb Hot Potato',
     tagline: 'Do the dare, pass the bomb. Don’t be holding it.',
     arenas: ALL,
@@ -90,6 +100,8 @@ export const GAMES = {
   },
   undercover: {
     id: 'undercover',
+    short: 'Undercover',
+    film: ['crew'], // roles under the Snitch Protocol
     name: 'Undercover Saboteur',
     tagline: 'One challenge. One hidden saboteur. Then everyone votes.',
     arenas: ALL,
@@ -99,6 +111,88 @@ export const GAMES = {
     roles: {
       crew: { label: 'Crew', brief: 'Complete the group challenge on camera. Watch everyone — one of you is secretly sabotaging it.' },
       saboteur: { label: 'Undercover Saboteur', brief: 'Join the challenge, but sneak your 3 covert tasks into the video without getting caught.' },
+    },
+  },
+  /* ---------------------------- childhood classics ---------------------------- */
+  hide_seek: {
+    id: 'hide_seek',
+    short: 'Hide & Seek',
+    film: ['hider'],
+    name: 'Hide & Seek: Snitch Cam',
+    tagline: 'Hiders must keep filming. Pocket the phone and it screams.',
+    arenas: ['indoor', 'park'],
+    min: 2,
+    duration: 300,
+    hideMs: 30000,
+    starter: 'Seeker',
+    roles: {
+      seeker: {
+        label: 'Seeker',
+        brief: 'Eyes closed: your phone counts 30 seconds. Then hunt with your camera — flashlight, flash pulse and 3 radar pulses that make every hider’s phone beep.',
+      },
+      hider: {
+        label: 'Hider',
+        brief: 'Hide and keep filming, always. Every 45 seconds a Peek Check makes you pan out of your spot. Stop filming or pocket the phone and it blasts a siren and strobes your flashlight.',
+      },
+    },
+  },
+  sardines: {
+    id: 'sardines',
+    short: 'Sardines',
+    film: ['sardine', 'hunter'],
+    name: 'Sardines',
+    tagline: 'One hides. Find them, squeeze in, keep silent.',
+    arenas: ['indoor', 'park'],
+    min: 3,
+    duration: 300,
+    hideMs: 45000,
+    starter: 'First sardine',
+    roles: {
+      sardine: { label: 'The Sardine', brief: 'You have 45 seconds to hide. Keep filming the hunters as they find you. Laugh and your phone snitches.' },
+      hunter: { label: 'Hunter', brief: 'Eyes closed for 45 seconds, then search alone while filming. Found the sardine? Squeeze into the same spot silently and tap “I found them”.' },
+    },
+  },
+  floor_lava: {
+    id: 'floor_lava',
+    short: 'Lava',
+    film: ['player'],
+    name: 'The Floor Is Lava',
+    tagline: 'When the siren hits zero: feet up, camera down.',
+    arenas: ['indoor', 'park'],
+    min: 2,
+    duration: 150,
+    roles: {
+      player: { label: 'Player', brief: 'Walk around filming. When the lava countdown hits zero, both feet must be off the ground — point your camera down at them as proof.' },
+    },
+  },
+  zombie_tag: {
+    id: 'zombie_tag',
+    short: 'Zombie',
+    film: ['survivor'],
+    name: 'Infected: Zombie Tag',
+    tagline: 'Patient Zero strobes. Get tagged, join the horde.',
+    arenas: ['park', 'indoor'],
+    min: 3,
+    duration: 240,
+    starter: 'Patient Zero',
+    roles: {
+      zombie: { label: 'Zombie', brief: 'Your flashlight strobes slowly as a zombie beacon. Tag survivors — they join your horde.' },
+      survivor: { label: 'Survivor', brief: 'Run, hide and keep filming. If a zombie tags you, tap “I got tagged” and join the horde.' },
+    },
+  },
+  marco_polo: {
+    id: 'marco_polo',
+    short: 'Marco Polo',
+    film: ['polo'],
+    name: 'Marco Polo: Flash Edition',
+    tagline: 'Marco calls — every hider’s phone answers POLO and flashes.',
+    arenas: ['indoor', 'park'],
+    min: 2,
+    duration: 240,
+    starter: 'Marco',
+    roles: {
+      marco: { label: 'Marco', brief: 'Eyes closed. Tap MARCO (20 s cooldown): every hider’s phone answers “Polo!” out loud and flashes its light. Tag them by touch.' },
+      polo: { label: 'Polo', brief: 'Film Marco from your spot. Your phone answers every Marco with a loud “Polo!” and a flash — move between calls.' },
     },
   },
 };
@@ -211,4 +305,22 @@ export const XP = {
   sabEscape: 300,
   sabTask: 100,
   sabCaughtTask: 50,
+  strike: -50, // Snitch Protocol: per filming violation
+  seekFound: 100,
+  seekAll: 200,
+  hideSurvive: 300,
+  hideFound: 50,
+  sardineBase: 150,
+  sardineHidden: 250,
+  sardineLast: -50,
+  lavaSafe: 100,
+  lavaBurn: -50,
+  survivorWin: 300,
+  zeroWin: 300,
+  zombieWin: 100,
+  survivedPer30: 50,
+  marcoTag: 150,
+  marcoAll: 200,
+  poloSurvive: 300,
+  poloTagged: 50,
 };

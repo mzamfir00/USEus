@@ -212,6 +212,8 @@
 @keyframes grain { 0%, 100% { transform: translate(0, 0); } 33% { transform: translate(-3%, 2%); } 66% { transform: translate(2%, -3%); } }
 @keyframes scan { from { transform: translateY(-20%); } to { transform: translateY(120vh); } }
 @keyframes march { to { background-position: 40px 0; } }
+/* Snitch strobe: 250 ms white / 250 ms black (2 flashes per second, under the 3/s photosensitivity limit). */
+@keyframes strobe { 0%, 49.9% { background: #fff; } 50%, 100% { background: #000; } }
 
 .enter { animation: enter 0.4s cubic-bezier(0.2, 0.9, 0.3, 1) both; }
 .fade { animation: fade 0.3s ease both; }

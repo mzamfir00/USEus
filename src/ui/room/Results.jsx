@@ -1,6 +1,6 @@
 import React, { useEffect } from 'react';
-import { Download, Share2 } from 'lucide-react';
-import { ARENAS, GAMES } from '../../game/games';
+import { Download, Share2, Siren } from 'lucide-react';
+import { ARENAS, GAMES, XP } from '../../game/games';
 import { canShareClip, downloadClip, shareClip, useClips } from '../../lib/clips';
 import { buzz, Synth } from '../../lib/sound';
 import { Avatar, SectionLabel } from '../primitives';
@@ -46,9 +46,68 @@ function Reveal({ view, media }) {
       return rv.out.length ? <div className="card p-5 text-[14.5px]">Out: {rv.out.map((id) => nameOf(view, id)).join(', ')}</div> : null;
     case 'hot_potato':
       return <div className="card p-5 text-[14.5px]">{rv.passes} passes before it blew.</div>;
+    case 'floor_lava':
+      return (
+        <>
+          <div className="card divide overflow-hidden">
+            {Object.entries(rv.lava || {}).map(([id, t]) => (
+              <div key={id} className="flex justify-between px-5 py-3 text-[14.5px]">
+                <span className="font-medium">{nameOf(view, id)}</span>
+                <span className="muted">
+                  {t.safe} safe · {t.burned} burned
+                </span>
+              </div>
+            ))}
+          </div>
+          {rv.proofs?.length > 0 && (
+            <div className="noscroll -mx-6 mt-3 flex gap-3 overflow-x-auto px-6">
+              {rv.proofs.map((p) => (
+                <div key={p.id} className="card w-[120px] shrink-0 overflow-hidden">
+                  <div className="aspect-[9/16] bg-black">{media[p.id] && <img src={media[p.id]} alt="" className="h-full w-full object-cover" />}</div>
+                  <div className="p-2.5 text-[12px]">
+                    <div className="font-semibold">{p.safe ? 'Safe' : 'Burned'}</div>
+                    <div className="muted truncate">
+                      {nameOf(view, p.by).split(' ')[0]} · call {p.n}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </>
+      );
+    case 'hide_seek':
+      return rv.found?.length ? <div className="card p-5 text-[14.5px]">Found: {rv.found.map((id) => nameOf(view, id)).join(', ')}</div> : null;
+    case 'sardines':
+      return rv.packed?.length ? <div className="card p-5 text-[14.5px]">Squeezed in: {rv.packed.map((id) => nameOf(view, id)).join(' → ')}</div> : null;
+    case 'zombie_tag':
+      return <div className="card p-5 text-[14.5px]">Horde: {rv.zombies.map((id) => nameOf(view, id)).join(' → ')}</div>;
+    case 'marco_polo':
+      return rv.tagged?.length ? <div className="card p-5 text-[14.5px]">Tagged: {rv.tagged.map((id) => nameOf(view, id)).join(', ')}</div> : null;
     default:
       return null;
   }
+}
+
+// Snitch Protocol summary: who stopped filming and what it cost them.
+function Strikes({ view }) {
+  const strikes = Object.entries(view.results.reveal?.strikes || {}).filter(([, n]) => n > 0);
+  if (!strikes.length) return null;
+  return (
+    <div className="card mt-3 p-5">
+      <div className="eyebrow flex items-center gap-1.5">
+        <Siren size={13} /> Snitch Protocol
+      </div>
+      <div className="mt-2 space-y-1">
+        {strikes.map(([id, n]) => (
+          <div key={id} className="flex justify-between text-[14.5px]">
+            <span>{nameOf(view, id)} stopped filming ×{n}</span>
+            <span className="muted tnum">{n * XP.strike} XP</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 function Clips({ roundKey }) {
@@ -113,6 +172,7 @@ export default function Results({ view, intent, media }) {
       <div className="mt-6">
         <Reveal view={view} media={media} />
       </div>
+      <Strikes view={view} />
 
       {res.evolved && (
         <div className="card mt-3 flex items-center justify-between p-5">

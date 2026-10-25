@@ -112,7 +112,7 @@ export function TeleprompterDirector({ view, serverNow, intent, onLeave, hud }) 
   const actor = view.round.participants.find((id) => view.round.roles[id] === 'actor');
   return (
     <GameShell view={view} serverNow={serverNow} roleLabel={`Director · filming ${nameOf(view, actor)}`} onLeave={onLeave}>
-      <Camera hud={hud} record micDefault>
+      <Camera hud={hud} record micDefault enforce>
         {mirror && (
           <div className="absolute inset-x-4 top-[max(150px,calc(env(safe-area-inset-top)+136px))] z-10 mr-14 rounded-[16px] border border-white/15 bg-black/65 px-4 py-3 backdrop-blur">
             <div className="text-[12px] text-white/55">{inject ? 'Direction just sent' : `Teleprompter · line ${Math.min(index + 1, lines.length)}`}</div>

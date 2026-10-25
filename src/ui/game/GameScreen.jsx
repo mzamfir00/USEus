@@ -1,5 +1,6 @@
 import React from 'react';
 import { ARENAS, GAMES } from '../../game/games';
+import { FloorLava, HideSeekHider, HideSeekSeeker, MarcoHunter, MarcoPolo, Sardines, ZombieTag } from './Classics';
 import HotPotato from './HotPotato';
 import { PaparazziReview, PaparazziSniper } from './Paparazzi';
 import { RedLightRunner, RedLightWatcher } from './RedLight';
@@ -59,6 +60,16 @@ function RoleScreen({ view, serverNow, intent, media, onLeave }) {
       return <HotPotato {...props} />;
     case 'undercover':
       return <UndercoverPlay {...props} />;
+    case 'hide_seek':
+      return role === 'seeker' ? <HideSeekSeeker {...props} /> : <HideSeekHider {...props} />;
+    case 'sardines':
+      return <Sardines {...props} />;
+    case 'floor_lava':
+      return <FloorLava {...props} />;
+    case 'zombie_tag':
+      return <ZombieTag {...props} />;
+    case 'marco_polo':
+      return role === 'marco' ? <MarcoHunter {...props} /> : <MarcoPolo {...props} />;
     default:
       return null;
   }

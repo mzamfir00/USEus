@@ -16,7 +16,7 @@ export function UndercoverPlay({ view, serverNow, intent, onLeave, hud }) {
 
   return (
     <GameShell view={view} serverNow={serverNow} roleLabel={secret ? 'Undercover · stay hidden' : 'Crew · spot the saboteur'} onLeave={onLeave}>
-      <Camera hud={hud} record micDefault>
+      <Camera hud={hud} record micDefault enforce>
         <BottomBar>
           <div className="space-y-2">
             <button type="button" onClick={() => setBriefOpen((v) => !v)} className="w-full rounded-[18px] border border-white/15 bg-black/65 px-4 py-3 text-left backdrop-blur">

@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { MapPin } from 'lucide-react';
+import { MapPin, Siren } from 'lucide-react';
+import { requestMotion, useMotionMode } from '../../lib/motion';
 import { PICK_MS, WHEEL_MS } from '../../game/engine';
 import { ARENAS, GAMES } from '../../game/games';
 import { buzz, Synth } from '../../lib/sound';
@@ -76,14 +77,15 @@ function Wheel({ view, serverNow, onLocked }) {
             <g key={id}>
               <path d={path} fill={on ? '#fff' : i % 2 ? '#141414' : '#000'} stroke="#262626" strokeWidth="1" />
               <text
-                transform={`rotate(${mid}) translate(0 -58)`}
+                transform={`rotate(${mid - 90}) translate(56 0)${mid > 180 ? ' rotate(180)' : ''}`}
                 textAnchor="middle"
-                fontSize="9.5"
+                dominantBaseline="middle"
+                fontSize={pool.length > 6 ? 7.4 : 9}
                 fontWeight="700"
                 fill={on ? '#000' : '#fff'}
                 style={{ fontFamily: 'Inter, system-ui, sans-serif' }}
               >
-                {GAMES[id].name.split(' ')[0]}
+                {GAMES[id].short}
               </text>
             </g>
           );
@@ -107,6 +109,8 @@ export default function Intro({ view, serverNow }) {
   const startsIn = Math.max(0, Math.ceil((r.startsAt - now) / 1000));
   const brief = roleBrief(view);
   const played = useRef(false);
+  const motion = useMotionMode();
+  const films = g.film.includes(r.roles[view.me]);
 
   useEffect(() => {
     if (!isRandom && !played.current && now < revealAt) {
@@ -136,6 +140,24 @@ export default function Intro({ view, serverNow }) {
           <div className="mt-6 text-[15px] font-medium text-[var(--muted)]">You are</div>
           <div className="title mt-1 text-[40px]">{brief.label}</div>
           <p className="mx-auto mt-4 max-w-[32ch] text-[16px] leading-relaxed">{brief.brief}</p>
+          {films && (
+            <div className="mx-auto mt-5 flex max-w-[32ch] items-start gap-2 rounded-[16px] border border-[var(--border)] px-4 py-3 text-left text-[13px] leading-snug">
+              <Siren size={16} className="mt-0.5 shrink-0" />
+              <span>Snitch Protocol: you must keep filming. Stopping, leaving the app or covering the lens sets off a siren and flashing lights.</span>
+            </div>
+          )}
+          {motion === 'ask' && (
+            <button
+              type="button"
+              className="btn btn-secondary mx-auto mt-4 !w-auto px-6"
+              onClick={() => {
+                Synth.unlock();
+                requestMotion();
+              }}
+            >
+              Enable motion sensors
+            </button>
+          )}
           {r.location && (
             <div className="muted mt-6 inline-flex items-center gap-1.5 text-[13.5px]">
               <MapPin size={14} /> {r.location}

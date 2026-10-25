@@ -102,7 +102,7 @@ export function SonarSurvivor({ view, serverNow, intent, onLeave, hud }) {
 
   return (
     <GameShell view={view} serverNow={serverNow} roleLabel={`Survivor · hunter is ${nameOf(view, view.round.participants.find((id) => view.round.roles[id] === 'hunter'))}`} onLeave={onLeave}>
-      <Camera hud={hud} record flash={beeping}>
+      <Camera hud={hud} record enforce flash={beeping}>
         {(incoming || beeping) && (
           <div className="absolute inset-x-4 top-[max(150px,calc(env(safe-area-inset-top)+136px))] mr-14 z-10 rounded-[18px] bg-white px-5 py-4 text-center text-black">
             <div className="text-[13px] font-medium text-black/50">{beeping ? 'Sonar hitting now' : 'Sonar incoming'}</div>

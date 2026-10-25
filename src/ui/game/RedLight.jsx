@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { FREEZE_GRACE } from '../../game/engine';
 import { GAMES } from '../../game/games';
+import { motionLive, requestMotion, subscribeMotion, useMotionMode } from '../../lib/motion';
 import { buzz, Synth } from '../../lib/sound';
 import { useNow } from '../room/helpers';
 import Camera from './Camera';
@@ -44,52 +45,32 @@ export function RedLightWatcher({ view, serverNow, intent, onLeave }) {
   );
 }
 
-// Motion sensing with an explicit permission step (iOS) and a hold-still fallback.
+// Motion detection from the shared sensor feed; without live readings (desktop, denied or
+// not yet granted) the hold-still button referees instead.
 function useMotion(onMove) {
-  const [mode, setMode] = useState(() => {
-    if (typeof window === 'undefined' || !('DeviceMotionEvent' in window)) return 'touch';
-    return typeof window.DeviceMotionEvent.requestPermission === 'function' ? 'ask' : 'sensor';
-  });
+  const mode = useMotionMode();
+  const [live, setLive] = useState(() => motionLive());
   const cb = useRef(onMove);
   cb.current = onMove;
-
   useEffect(() => {
     if (mode !== 'sensor') return undefined;
     let last = null;
-    let samples = 0;
-    const handler = (e) => {
-      const a = e.acceleration;
-      // Some browsers fire events with empty readings on devices without a sensor.
-      if (a?.x == null && e.accelerationIncludingGravity?.x == null) return;
-      samples += 1;
-      const rot = e.rotationRate;
-      let moved = false;
-      if (a && a.x != null) moved = Math.hypot(a.x, a.y, a.z) > 1.6;
-      else if (e.accelerationIncludingGravity?.x != null) {
-        const g = e.accelerationIncludingGravity;
-        if (last) moved = Math.hypot(g.x - last.x, g.y - last.y, g.z - last.z) > 2.2;
+    const off = subscribeMotion((e, { accel, rot }) => {
+      let moved = accel > 1.6 || rot > 70;
+      const g = e.accelerationIncludingGravity;
+      if (e.acceleration?.x == null && g?.x != null) {
+        if (last) moved = moved || Math.hypot(g.x - last.x, g.y - last.y, g.z - last.z) > 2.2;
         last = { x: g.x, y: g.y, z: g.z };
       }
-      if (rot && Math.hypot(rot.alpha || 0, rot.beta || 0, rot.gamma || 0) > 70) moved = true;
       if (moved) cb.current();
-    };
-    window.addEventListener('devicemotion', handler);
-    // No real readings (desktop / no sensor): fall back to the hold-still button.
-    const check = setTimeout(() => samples === 0 && setMode('touch'), 2500);
+    });
+    const t = setInterval(() => setLive(motionLive()), 1000);
     return () => {
-      clearTimeout(check);
-      window.removeEventListener('devicemotion', handler);
+      off();
+      clearInterval(t);
     };
   }, [mode]);
-
-  const ask = async () => {
-    try {
-      setMode((await window.DeviceMotionEvent.requestPermission()) === 'granted' ? 'sensor' : 'touch');
-    } catch (e) {
-      setMode('touch');
-    }
-  };
-  return { mode, ask };
+  return { mode: mode === 'ask' ? 'ask' : mode === 'sensor' && live ? 'sensor' : 'touch', ask: requestMotion };
 }
 
 export function RedLightRunner({ view, serverNow, intent, onLeave, hud }) {
@@ -127,7 +108,7 @@ export function RedLightRunner({ view, serverNow, intent, onLeave, hud }) {
 
   return (
     <GameShell view={view} serverNow={serverNow} roleLabel={out ? 'Out · keep filming' : 'Runner · reach the watcher'} onLeave={onLeave}>
-      <Camera hud={hud} record>
+      <Camera hud={hud} record enforce>
         {alarm && <div className="pointer-events-none absolute inset-0 z-30" style={{ animation: 'flash .15s steps(2) infinite', background: '#fff' }} />}
         <div className="absolute inset-x-4 top-[max(150px,calc(env(safe-area-inset-top)+136px))] z-10 mr-14">
           <div className={`pointer-events-none rounded-[18px] px-5 py-3 text-center ${out ? 'border border-white/20 bg-black/70 text-white' : red ? 'bg-white text-black' : 'border border-white/20 bg-black/60 text-white backdrop-blur'}`}>

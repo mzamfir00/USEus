@@ -168,6 +168,35 @@ function startRound(s, now) {
       duration = Math.min(mission.duration, 240);
       break;
     }
+    case 'hide_seek':
+      order.forEach((id, i) => (roles[id] = i === 0 ? 'seeker' : 'hider'));
+      data = { hideUntil: startsAt + game.hideMs, radarLeft: 3, radarAt: null, radarCount: 0, radarCooldown: 0, found: {}, noise: { count: 0, at: 0 } };
+      break;
+    case 'sardines':
+      order.forEach((id, i) => (roles[id] = i === 0 ? 'sardine' : 'hunter'));
+      data = { hideUntil: startsAt + game.hideMs, packed: [], noise: { count: 0, at: 0 } };
+      break;
+    case 'floor_lava': {
+      ids.forEach((id) => (roles[id] = 'player'));
+      // Random lava calls, revealed one at a time by the host (6 s before each).
+      const times = [];
+      let t = startsAt + 15000 + Math.floor(Math.random() * 10000);
+      while (t < startsAt + duration * 1000 - 12000 && times.length < 5) {
+        times.push(t);
+        t += 20000 + Math.floor(Math.random() * 15000);
+      }
+      secret.host.lavaTimes = times;
+      data = { lava: null, checks: {}, proofs: [], total: times.length };
+      break;
+    }
+    case 'zombie_tag':
+      order.forEach((id, i) => (roles[id] = i === 0 ? 'zombie' : 'survivor'));
+      data = { zombies: [lead], infectedAt: { [lead]: startsAt }, last: null };
+      break;
+    case 'marco_polo':
+      order.forEach((id, i) => (roles[id] = i === 0 ? 'marco' : 'polo'));
+      data = { marcos: 0, marcoAt: null, cooldownUntil: startsAt, tagged: {} };
+      break;
     default:
       return false;
   }
@@ -186,6 +215,9 @@ function startRound(s, now) {
     participants: ids,
     roles,
     data,
+    violations: {}, // live Snitch Protocol alarms: id -> { reason, at }
+    strikes: {}, // violations per player this round
+    noiseAt: {},
   };
   s.secret = secret;
   s.results = null;
@@ -326,9 +358,121 @@ function finish(s, now, outcome) {
       reveal.tally = tally;
       break;
     }
+    case 'hide_seek': {
+      const seeker = r.participants.find((id) => role(id) === 'seeker');
+      const hiders = r.participants.filter((id) => id !== seeker);
+      const found = Object.keys(d.found);
+      add(seeker, found.length * XP.seekFound);
+      found.forEach((id) => add(id, XP.hideFound));
+      if (hiders.length && found.length === hiders.length) {
+        add(seeker, XP.seekAll);
+        winners.add(seeker);
+        headline = `${nameOf(s, seeker)} found everyone`;
+      } else {
+        const hidden = hiders.filter((id) => !d.found[id]);
+        hidden.forEach((id) => {
+          add(id, XP.hideSurvive);
+          winners.add(id);
+        });
+        headline = `${hidden.length} hider${hidden.length === 1 ? ' was' : 's were'} never found`;
+      }
+      reveal.found = found;
+      break;
+    }
+    case 'sardines': {
+      const sardine = r.participants.find((id) => role(id) === 'sardine');
+      const hunters = r.participants.filter((id) => id !== sardine);
+      d.packed.forEach((id, i) => {
+        add(id, Math.max(100, 300 - i * 100));
+        winners.add(id);
+      });
+      const unpacked = hunters.filter((id) => !d.packed.includes(id));
+      winners.add(sardine);
+      if (outcome === 'last-hunter') {
+        add(sardine, XP.sardineBase);
+        unpacked.forEach((id) => add(id, XP.sardineLast));
+        headline = `${nameOf(s, unpacked[0])} was the last one searching`;
+      } else {
+        add(sardine, unpacked.length ? XP.sardineHidden : XP.sardineBase);
+        headline = unpacked.length ? `${unpacked.length} hunter${unpacked.length === 1 ? '' : 's'} never found the sardine` : 'Everyone squeezed in';
+      }
+      reveal.packed = d.packed;
+      reveal.unpacked = unpacked;
+      break;
+    }
+    case 'floor_lava': {
+      const reached = d.lava && d.lava.at <= now ? d.lava.n : d.lava ? d.lava.n - 1 : 0;
+      const tally = {};
+      r.participants.forEach((id) => {
+        let safe = 0;
+        let burned = 0;
+        for (let n = 1; n <= reached; n += 1) {
+          if (d.checks[n]?.[id] === true) safe += 1;
+          else burned += 1; // no proof in time = burned
+        }
+        tally[id] = { safe, burned };
+        add(id, safe * XP.lavaSafe + burned * XP.lavaBurn);
+      });
+      const best = Math.max(0, ...Object.values(tally).map((t) => t.safe));
+      const top = r.participants.filter((id) => best > 0 && tally[id].safe === best);
+      top.forEach((id) => winners.add(id));
+      headline = reached === 0 ? 'The lava never came' : top.length ? `${top.map((id) => nameOf(s, id).split(' ')[0]).join(' & ')} kept their feet up` : 'Everyone got burned';
+      reveal.lava = tally;
+      reveal.proofs = d.proofs;
+      reveal.reached = reached;
+      break;
+    }
+    case 'zombie_tag': {
+      const zero = r.participants.find((id) => role(id) === 'zombie');
+      const survivors = r.participants.filter((id) => !d.zombies.includes(id));
+      if (!survivors.length) {
+        d.zombies.forEach((id) => {
+          add(id, XP.zombieWin);
+          winners.add(id);
+        });
+        add(zero, XP.zeroWin);
+        headline = 'The horde took everyone';
+      } else {
+        survivors.forEach((id) => {
+          add(id, XP.survivorWin);
+          winners.add(id);
+        });
+        headline = `${survivors.length} survivor${survivors.length === 1 ? '' : 's'} made it`;
+      }
+      d.zombies
+        .filter((id) => id !== zero)
+        .forEach((id) => add(id, Math.floor((d.infectedAt[id] - r.startsAt) / 30000) * XP.survivedPer30));
+      reveal.zombies = d.zombies;
+      break;
+    }
+    case 'marco_polo': {
+      const marco = r.participants.find((id) => role(id) === 'marco');
+      const polos = r.participants.filter((id) => id !== marco);
+      const tagged = Object.keys(d.tagged);
+      add(marco, tagged.length * XP.marcoTag);
+      tagged.forEach((id) => add(id, XP.poloTagged));
+      if (polos.length && tagged.length === polos.length) {
+        add(marco, XP.marcoAll);
+        winners.add(marco);
+        headline = `${nameOf(s, marco)} tagged everyone`;
+      } else {
+        const free = polos.filter((id) => !d.tagged[id]);
+        free.forEach((id) => {
+          add(id, XP.poloSurvive);
+          winners.add(id);
+        });
+        headline = `${free.length} polo${free.length === 1 ? '' : 's'} slipped away`;
+      }
+      reveal.tagged = tagged;
+      break;
+    }
     default:
       break;
   }
+
+  // Snitch Protocol strikes cost XP whatever the game.
+  Object.entries(r.strikes || {}).forEach(([id, n]) => add(id, n * XP.strike));
+  reveal.strikes = r.strikes || {};
 
   const before = dnaInfo(s.dna);
   const style = ARENAS[r.arena].style;
@@ -442,17 +586,16 @@ export function reduce(prev, actorId, a, now = Date.now()) {
 
     /* ---- shared ---- */
     case 'tick': {
-      if (!r) return prev;
-      if (s.phase === 'round') {
-        if (r.game === 'hot_potato' && now >= s.secret.host.explodeAt) {
-          r.data.exploded = r.data.holder;
-          finish(s, now, 'exploded');
-        } else if (now >= r.endsAt) {
-          if (r.game === 'hot_potato') {
-            r.data.exploded = r.data.holder;
-            finish(s, now, 'exploded');
-          } else endPlay(s, now, 'time');
-        } else return prev;
+      if (!r || s.phase !== 'round') return prev;
+      if (r.game === 'hot_potato' && (now >= s.secret.host.explodeAt || now >= r.endsAt)) {
+        r.data.exploded = r.data.holder;
+        finish(s, now, 'exploded');
+      } else if (now >= r.endsAt) {
+        endPlay(s, now, 'time');
+      } else if (r.game === 'floor_lava') {
+        const next = s.secret.host.lavaTimes.find((t) => t > (r.data.lava?.at || 0));
+        if (!next || now < next - 6000) return prev;
+        r.data.lava = { n: (r.data.lava?.n || 0) + 1, at: next };
       } else return prev;
       break;
     }
@@ -563,6 +706,91 @@ export function reduce(prev, actorId, a, now = Date.now()) {
       if (s.phase !== 'review' || r.game !== 'undercover' || !isPlayer || !r.participants.includes(a.id) || a.id === actorId) return prev;
       r.data.votes[actorId] = a.id;
       if (r.participants.filter((id) => find(id)?.connected).every((id) => r.data.votes[id])) finish(s, now, 'votes');
+      break;
+    }
+
+    /* ---- Snitch Protocol ---- */
+    case 'violation': {
+      if (s.phase !== 'round' || !isPlayer || now < r.startsAt || r.violations[actorId]) return prev;
+      r.violations[actorId] = { reason: String(a.reason || 'stopped').slice(0, 16), at: now };
+      r.strikes[actorId] = (r.strikes[actorId] || 0) + 1;
+      break;
+    }
+    case 'resolved': {
+      if (!r?.violations?.[actorId]) return prev;
+      delete r.violations[actorId];
+      break;
+    }
+    case 'noise': {
+      if (!inPlay || !isPlayer || now - (r.noiseAt[actorId] || 0) < 4000 || !r.data.noise) return prev;
+      r.noiseAt[actorId] = now;
+      r.data.noise = { count: r.data.noise.count + 1, at: now, by: actorId };
+      break;
+    }
+
+    /* ---- Hide & Seek ---- */
+    case 'radar': {
+      const d = r?.data;
+      if (!inPlay || r.game !== 'hide_seek' || myRole !== 'seeker' || now < d.hideUntil || d.radarLeft <= 0 || now < d.radarCooldown) return prev;
+      d.radarLeft -= 1;
+      d.radarCount += 1;
+      d.radarAt = now + 1500;
+      d.radarCooldown = now + 8000;
+      break;
+    }
+    case 'found': {
+      const d = r?.data;
+      if (!inPlay || r.game !== 'hide_seek' || myRole !== 'seeker' || now < d.hideUntil || r.roles[a.id] !== 'hider' || d.found[a.id]) return prev;
+      d.found[a.id] = now;
+      if (r.participants.filter((id) => r.roles[id] === 'hider').every((id) => d.found[id])) finish(s, now, 'all-found');
+      break;
+    }
+
+    /* ---- Sardines ---- */
+    case 'packed': {
+      const d = r?.data;
+      if (!inPlay || r.game !== 'sardines' || myRole !== 'hunter' || now < d.hideUntil || d.packed.includes(actorId)) return prev;
+      d.packed.push(actorId);
+      const left = r.participants.filter((id) => r.roles[id] === 'hunter' && !d.packed.includes(id));
+      if (left.length <= 1) finish(s, now, 'last-hunter');
+      break;
+    }
+
+    /* ---- Floor Is Lava ---- */
+    case 'lavaCheck': {
+      const d = r?.data;
+      if (!inPlay || r.game !== 'floor_lava' || !isPlayer || !d.lava || a.n !== d.lava.n) return prev;
+      if (now < d.lava.at - 1000 || now > d.lava.at + 6000 || d.checks[a.n]?.[actorId] !== undefined) return prev;
+      d.checks[a.n] = { ...(d.checks[a.n] || {}), [actorId]: !!a.safe };
+      if (a.mediaId) d.proofs.push({ id: String(a.mediaId).slice(0, 32), by: actorId, n: a.n, safe: !!a.safe });
+      break;
+    }
+
+    /* ---- Zombie Tag ---- */
+    case 'infected': {
+      const d = r?.data;
+      if (!inPlay || r.game !== 'zombie_tag' || !isPlayer || d.zombies.includes(actorId)) return prev;
+      d.zombies.push(actorId);
+      d.infectedAt[actorId] = now;
+      d.last = { id: actorId, at: now };
+      if (r.participants.every((id) => d.zombies.includes(id))) finish(s, now, 'all-infected');
+      break;
+    }
+
+    /* ---- Marco Polo ---- */
+    case 'marco': {
+      const d = r?.data;
+      if (!inPlay || r.game !== 'marco_polo' || myRole !== 'marco' || now < d.cooldownUntil) return prev;
+      d.marcos += 1;
+      d.marcoAt = now + 400;
+      d.cooldownUntil = now + 20000;
+      break;
+    }
+    case 'tag': {
+      const d = r?.data;
+      if (!inPlay || r.game !== 'marco_polo' || myRole !== 'marco' || r.roles[a.id] !== 'polo' || d.tagged[a.id]) return prev;
+      d.tagged[a.id] = now;
+      if (r.participants.filter((id) => r.roles[id] === 'polo').every((id) => d.tagged[id])) finish(s, now, 'all-tagged');
       break;
     }
 

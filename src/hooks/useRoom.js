@@ -150,13 +150,17 @@ export function useRoom(profile, onProfileUpdate) {
     (actorId, action) => {
       const h = host.current;
       if (!h) return;
-      if (action.type === 'shot' && typeof action.img === 'string' && action.img.length < 400000) {
-        const id = String(action.id || '').slice(0, 24);
-        dispatch(actorId, { type: 'shot', id });
-        if (h.game.round?.data?.shots?.some((x) => x.id === id) && !h.media.has(id)) {
-          h.media.set(id, action.img);
-          h.conns.forEach((pid, connId) => h.bus.send(connId, { t: 'media', id, img: action.img }));
-          setMedia((m) => ({ ...m, [id]: action.img }));
+      // Any intent carrying a photo (paparazzi shots, lava proofs): strip the image, apply
+      // the intent, and only if it was accepted share the photo once with every phone.
+      if (typeof action.img === 'string') {
+        const { img, ...rest } = action;
+        const id = String(rest.mediaId || rest.id || '').slice(0, 32);
+        const before = h.game.seq;
+        dispatch(actorId, { ...rest, ...(rest.type === 'shot' ? { id } : { mediaId: id }) });
+        if (id && img.length < 400000 && h.game.seq !== before && !h.media.has(id)) {
+          h.media.set(id, img);
+          h.conns.forEach((pid, connId) => h.bus.send(connId, { t: 'media', id, img }));
+          setMedia((m) => ({ ...m, [id]: img }));
         }
         return;
       }
