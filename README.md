@@ -1,24 +1,72 @@
-# 🎲 SQUAD ROULETTE
+# SQUAD ROULETTE
 
-An IRL multiplayer party game built as a mobile web app: spin the wheel, get cast, film the chaos.
+An IRL multiplayer party game where every player uses their own phone. Spin the wheel, get cast, film the chaos.
 
-The whole game is one React component, [`src/SquadRoulette.jsx`](src/SquadRoulette.jsx). It uses Tailwind CSS and `lucide-react`, and synthesizes all of its sound effects with the Web Audio API, so there are no audio files.
+**Live:** https://mzamfir00.github.io/USEus/
 
-## Run it
+## How a game works
+
+1. **Accounts:** everyone signs up with a name, a unique @username, age (13+), a playstyle archetype and a 4-digit PIN.
+2. **Host phone:** taps **Create room** and gets a 4-digit code plus a QR code that opens `…/USEus/?room=XXXX`.
+3. **Friends' phones:** log in, tap **Join room** and enter the code, or scan the QR code. They show up in the host's lobby roster in real time.
+4. **Spin:** the host spins and every phone plays the roulette at the same moment.
+5. **Briefing:** each phone shows:
+   - **My assignment:** that player's own role and instructions.
+   - **🔒 Secret agenda:** only the saboteur's phone ever receives the secret. Everyone else sees *"1 player in this room has received a classified secret objective. Trust no one."*
+   - **Squad public missions:** what everyone else is supposed to be doing.
+6. **Play:** the mission timer is synced across phones. POV REC mode overlays the mission on the camera feed.
+7. **Score:** the host scores the round. XP, completed missions, secret wins and squad history are saved to each player's account. Roles rotate every round.
+
+**Solo testing:** the host can tap **+ Add simulated bot / pass-the-phone player** to fill a round from one phone.
+
+## Adaptive Room DNA
+
+Each room remembers the missions it has completed and which vibe the squad plays most, and the whole UI changes as it evolves. The **ROOM DNA / EVOLUTION LEVEL** meter in the header shows the current state.
+
+| Level | Look |
+| --- | --- |
+| LV.0 | Clinical black and white wireframe |
+| LV.1–3 | Gains the style of the squad's most-played vibe, more strongly at each level |
+
+| Style | Vibes | Mutations |
+| --- | --- | --- |
+| **Auteur Studio** | Supermarket, Creator pack | 35mm film strips, viewfinder brackets, serif accents, ivory film grain |
+| **Classified Dossier** | City streets | Radar grid, redaction bars, telemetry badges, topographic lines, radar sweep |
+| **Kinetic Brutalism** | Roadtrip | Hazard stripes, hard drop shadows, stamp typography, diagonal motion |
+
+Reopening a room from **Your rooms** keeps its DNA and leaderboard.
+
+## Architecture
+
+```
+src/
+  App.jsx                 auth gate → home → room
+  hooks/useRoom.js        host loop (authoritative state, heartbeats) + client loop (reconnects)
+  game/engine.js          pure game rules, Room DNA, per-phone filtered views
+  game/missions.js        16 missions (4 per vibe)
+  lib/net.js              transports: PeerJS (WebRTC) + Supabase Realtime
+  lib/db.js               accounts, rooms, stats: localStorage + optional Supabase
+  lib/sound.js            Web Audio synth (no audio files)
+  components/             screens
+  styles/theme.css        monochrome system + DNA mutations
+supabase/schema.sql       tables, RLS policies, login RPC
+```
+
+- **Host-authoritative:** the host phone holds the full game state. Each phone receives only its own filtered view, so the saboteur's identity and twist never reach other phones.
+- **Networking:** PeerJS (the public PeerJS signalling server, with STUN plus a public TURN relay) works with zero configuration. When Supabase is configured, the host also listens on Supabase Realtime, and joining phones try it first.
+- **Storage:**
+  - **On-device (default):** accounts, rooms and history live in `localStorage`. The profiles of players you meet are cached peer-to-peer.
+  - **Supabase:** run `supabase/schema.sql`, then paste the URL and anon key in **Profile menu → Database / Cloud settings**, or set `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` at build time. Profiles, rooms, `room_players` and `mission_history` then sync to Postgres, and logins work on any device.
+
+## Develop
 
 ```bash
 npm install
 npm run dev      # open the printed URL on your phone (same Wi-Fi)
-npm run build    # production build in dist/
+npm run build
 ```
 
-## Flow
+To test networking against a self-hosted PeerServer, set
+`localStorage['sr.peerServer'] = '{"host":"localhost","port":9000,"path":"/","secure":false}'`.
 
-1. **Lobby**: room code badge with a QR join modal, the squad roster (quick-add chips, 2–8 players), and the vibe selector. The ⭐ Creator Pack name is editable, so you can rename it for any influencer.
-2. **Roulette**: a 2.5 s slot-machine reel. The mechanical ticks slow down, then a bass-drop lock-in. Players are cast as 🎬 Director, 🎭 Main Character, 📹 Cameraman and 🕵️ Secret Saboteur. A 5th player or more joins the 📣 Hype Crew.
-3. **Briefing**: a large mission card with the player names highlighted. It has role cards, a tap-to-reveal secret twist, and a live timer with Play/Pause, +1 Min, Reset and "Simulate last 10 seconds". The last 10 seconds beep and the end of the timer sounds an alarm. **POV REC / Stamp Mode** opens the camera (or a simulated viewfinder if it's blocked) with a REC + timer watermark and the mission banner overlaid.
-4. **Results**: Mission Complete (XP, a beat-the-clock bonus and a saboteur bonus) or Chickened Out (an XP penalty and a dare). The night's leaderboard follows, then **Next Round**, which rotates roles automatically.
-
-## Missions
-
-There are 16 missions, 4 per vibe. They use `{Player1}`, `{Player2}`, `{Player3}` and `{Pack}` placeholders, which are filled with the live squad's names. Missions don't repeat until a vibe's pool runs out.
+Every push to `main` deploys to GitHub Pages via `.github/workflows/deploy.yml`.
