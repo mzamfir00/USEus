@@ -1,34 +1,48 @@
--- Squad Roulette — Supabase schema.
--- Run this once in the Supabase SQL editor, then paste the project URL + anon key
--- into the app (profile menu → Database / Cloud Settings) or set
--- VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY at build time.
+-- USEus — Supabase schema (accounts, friendships, rooms, mission_logs).
 --
--- Security model: a casual party game. The anon key can read public profile
--- columns and write game data; PIN hashes are never readable and logins from a
--- new device are verified server-side by login_profile().
+-- Setup: run this file once in the Supabase SQL editor, then add the project URL and
+-- anon key as GitHub repository secrets VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY
+-- (the Pages workflow passes them to the build), or connect from Profile → Cloud database.
+--
+-- Guarantees:
+--   * Accounts are permanent: DELETE is revoked and blocked by a trigger.
+--   * Phone, email and username are unique; every account has a phone or an email.
+--   * Every account is 16+ (date of birth checked in the database too).
+--   * pass_hash, phone and email are never readable by clients; logins are verified by
+--     login_account(), lookups by find_accounts(), uniqueness by identity_available().
 
-create extension if not exists pgcrypto;
-
-create table if not exists public.profiles (
-  id uuid primary key default gen_random_uuid(),
-  username text unique not null check (username ~ '^[a-z0-9_]{3,16}$'),
+create table if not exists public.accounts (
+  id uuid primary key,
+  username text not null unique check (username ~ '^[a-z0-9_.]{3,20}$'),
   name text not null,
-  age int not null check (age between 13 and 99),
-  archetype text not null,
-  pin_hash text not null,
+  phone text unique check (phone is null or phone ~ '^\+[0-9]{8,15}$'),
+  email text unique check (email is null or email = lower(email)),
+  dob date not null,
+  pass_hash text not null,
   xp int not null default 0,
   missions_completed int not null default 0,
   secret_wins int not null default 0,
   rounds_played int not null default 0,
   chickened int not null default 0,
   squad_history jsonb not null default '[]'::jsonb,
+  aesthetics text[] not null default array['none'],
+  theme text not null default 'none',
   created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
+  updated_at timestamptz not null default now(),
+  constraint accounts_contact check (phone is not null or email is not null)
+);
+
+create table if not exists public.friendships (
+  account_id uuid not null references public.accounts(id),
+  friend_id uuid not null references public.accounts(id),
+  created_at timestamptz not null default now(),
+  primary key (account_id, friend_id),
+  check (account_id <> friend_id)
 );
 
 create table if not exists public.rooms (
-  code text primary key,
-  host_username text references public.profiles(username) on delete set null,
+  code text primary key check (code ~ '^[0-9]{4}$'),
+  host_id uuid references public.accounts(id),
   dna jsonb not null default '{}'::jsonb,
   scores jsonb not null default '{}'::jsonb,
   category text,
@@ -37,16 +51,9 @@ create table if not exists public.rooms (
   updated_at timestamptz not null default now()
 );
 
-create table if not exists public.room_players (
-  room_code text references public.rooms(code) on delete cascade,
-  username text references public.profiles(username) on delete cascade,
-  joined_at timestamptz not null default now(),
-  primary key (room_code, username)
-);
-
-create table if not exists public.mission_history (
+create table if not exists public.mission_logs (
   id bigserial primary key,
-  room_code text references public.rooms(code) on delete cascade,
+  room_code text references public.rooms(code),
   mission_id int not null,
   category text not null,
   outcome text not null check (outcome in ('complete', 'chicken')),
@@ -55,47 +62,112 @@ create table if not exists public.mission_history (
   created_at timestamptz not null default now()
 );
 
-alter table public.profiles enable row level security;
-alter table public.rooms enable row level security;
-alter table public.room_players enable row level security;
-alter table public.mission_history enable row level security;
-
--- Column-level read access: everything except pin_hash.
-revoke select on public.profiles from anon, authenticated;
-grant select (id, username, name, age, archetype, xp, missions_completed, secret_wins,
-              rounds_played, chickened, squad_history, created_at, updated_at)
-  on public.profiles to anon, authenticated;
-grant insert, update on public.profiles to anon, authenticated;
-
-drop policy if exists "profiles read" on public.profiles;
-drop policy if exists "profiles insert" on public.profiles;
-drop policy if exists "profiles update" on public.profiles;
-create policy "profiles read" on public.profiles for select using (true);
-create policy "profiles insert" on public.profiles for insert with check (true);
-create policy "profiles update" on public.profiles for update using (true) with check (true);
-
-drop policy if exists "rooms all" on public.rooms;
-create policy "rooms all" on public.rooms for all using (true) with check (true);
-drop policy if exists "room_players all" on public.room_players;
-create policy "room_players all" on public.room_players for all using (true) with check (true);
-drop policy if exists "mission_history all" on public.mission_history;
-create policy "mission_history all" on public.mission_history for all using (true) with check (true);
-
--- Verifies a username + PIN hash and returns the profile (without the hash).
-create or replace function public.login_profile(p_username text, p_pin_hash text)
-returns table (
-  id uuid, username text, name text, age int, archetype text, xp int,
-  missions_completed int, secret_wins int, rounds_played int, chickened int,
-  squad_history jsonb, created_at timestamptz
-)
-language sql
-security definer
-set search_path = public
-as $$
-  select p.id, p.username, p.name, p.age, p.archetype, p.xp, p.missions_completed,
-         p.secret_wins, p.rounds_played, p.chickened, p.squad_history, p.created_at
-  from public.profiles p
-  where p.username = lower(p_username) and p.pin_hash = p_pin_hash;
+-- Permanent retention ---------------------------------------------------------
+create or replace function public.block_account_delete() returns trigger
+language plpgsql as $$
+begin
+  raise exception 'USEus accounts are permanent and cannot be deleted';
+end;
 $$;
 
-grant execute on function public.login_profile(text, text) to anon, authenticated;
+drop trigger if exists accounts_no_delete on public.accounts;
+create trigger accounts_no_delete before delete on public.accounts
+  for each row execute function public.block_account_delete();
+
+create or replace function public.enforce_min_age() returns trigger
+language plpgsql as $$
+begin
+  if new.dob > (current_date - interval '16 years') then
+    raise exception 'You must be at least 16 years old to play USEus';
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists accounts_min_age on public.accounts;
+create trigger accounts_min_age before insert or update of dob on public.accounts
+  for each row execute function public.enforce_min_age();
+
+-- Row level security ----------------------------------------------------------
+alter table public.accounts enable row level security;
+alter table public.friendships enable row level security;
+alter table public.rooms enable row level security;
+alter table public.mission_logs enable row level security;
+
+revoke all on public.accounts from anon, authenticated;
+grant select (id, username, name, xp, missions_completed, secret_wins, rounds_played,
+              chickened, aesthetics, theme, created_at)
+  on public.accounts to anon, authenticated;
+grant insert, update on public.accounts to anon, authenticated;
+grant select, insert on public.friendships to anon, authenticated;
+grant select, insert, update on public.rooms to anon, authenticated;
+grant select, insert on public.mission_logs to anon, authenticated;
+grant usage, select on sequence public.mission_logs_id_seq to anon, authenticated;
+
+drop policy if exists accounts_read on public.accounts;
+drop policy if exists accounts_insert on public.accounts;
+drop policy if exists accounts_update on public.accounts;
+create policy accounts_read on public.accounts for select using (true);
+create policy accounts_insert on public.accounts for insert with check (true);
+create policy accounts_update on public.accounts for update using (true) with check (true);
+
+drop policy if exists friendships_read on public.friendships;
+drop policy if exists friendships_insert on public.friendships;
+create policy friendships_read on public.friendships for select using (true);
+create policy friendships_insert on public.friendships for insert with check (true);
+
+drop policy if exists rooms_read on public.rooms;
+drop policy if exists rooms_insert on public.rooms;
+drop policy if exists rooms_update on public.rooms;
+create policy rooms_read on public.rooms for select using (true);
+create policy rooms_insert on public.rooms for insert with check (true);
+create policy rooms_update on public.rooms for update using (true) with check (true);
+
+drop policy if exists mission_logs_read on public.mission_logs;
+drop policy if exists mission_logs_insert on public.mission_logs;
+create policy mission_logs_read on public.mission_logs for select using (true);
+create policy mission_logs_insert on public.mission_logs for insert with check (true);
+
+-- RPCs -------------------------------------------------------------------------
+
+-- Restores the full account (including private contact fields) for a correct login.
+create or replace function public.login_account(p_identifier text, p_pass_hash text)
+returns table (
+  id uuid, username text, name text, phone text, email text, dob date, xp int,
+  missions_completed int, secret_wins int, rounds_played int, chickened int,
+  squad_history jsonb, aesthetics text[], theme text, created_at timestamptz
+)
+language sql security definer set search_path = public as $$
+  select a.id, a.username, a.name, a.phone, a.email, a.dob, a.xp, a.missions_completed,
+         a.secret_wins, a.rounds_played, a.chickened, a.squad_history, a.aesthetics,
+         a.theme, a.created_at
+  from public.accounts a
+  where (a.phone = p_identifier or a.email = lower(p_identifier))
+    and a.pass_hash = p_pass_hash;
+$$;
+
+create or replace function public.identity_available(p_username text, p_phone text, p_email text)
+returns table (username_taken boolean, phone_taken boolean, email_taken boolean)
+language sql security definer set search_path = public as $$
+  select
+    exists (select 1 from public.accounts where username = lower(p_username)),
+    p_phone is not null and exists (select 1 from public.accounts where phone = p_phone),
+    p_email is not null and exists (select 1 from public.accounts where email = lower(p_email));
+$$;
+
+-- Username prefix search, or exact phone / email match. Returns public fields only.
+create or replace function public.find_accounts(p_query text)
+returns table (id uuid, username text, name text)
+language sql security definer set search_path = public as $$
+  select a.id, a.username, a.name
+  from public.accounts a
+  where a.username like lower(ltrim(p_query, '@')) || '%'
+     or a.phone = p_query
+     or a.email = lower(p_query)
+  order by a.username
+  limit 20;
+$$;
+
+grant execute on function public.login_account(text, text) to anon, authenticated;
+grant execute on function public.identity_available(text, text, text) to anon, authenticated;
+grant execute on function public.find_accounts(text) to anon, authenticated;

@@ -14,20 +14,11 @@ export const CATEGORIES = {
   creator: { id: 'creator', index: '04', label: 'Creator Custom Pack', tagline: 'Sponsored pack', style: 'auteur' },
 };
 
-export const ARCHETYPES = [
-  { id: 'director', label: 'The Director', blurb: 'Calls the shots. Lives for the perfect take.' },
-  { id: 'instigator', label: 'The Instigator', blurb: 'Starts the chaos. Never apologises.' },
-  { id: 'ghost', label: 'The Ghost', blurb: 'Silent, stealthy, impossible to catch.' },
-  { id: 'wildcard', label: 'The Wildcard', blurb: 'Nobody knows what happens next. Including you.' },
-];
-
-export const archetypeLabel = (id) => ARCHETYPES.find((a) => a.id === id)?.label || 'Unknown';
-
 export const DNA_STYLES = {
-  none: { name: 'Clinical Wireframe', code: 'WF-00', motto: 'Complete a mission to start evolving.' },
-  auteur: { name: 'Auteur Studio', code: '35MM', motto: 'Film-strip borders, viewfinders, silver grain.' },
-  dossier: { name: 'Classified Dossier', code: 'TS/SCI', motto: 'Radar grids, redactions, topographic intel.' },
-  kinetic: { name: 'Kinetic Brutalism', code: 'HZ-01', motto: 'Hazard stripes, hard shadows, stamped type.' },
+  none: { name: 'Monochrome', short: 'Mono', motto: 'Pure black and white. Complete missions together to evolve the room.' },
+  auteur: { name: 'Auteur Studio', short: 'Auteur', motto: 'Serif titles, film perforations and a fine silver grain.' },
+  dossier: { name: 'Classified Dossier', short: 'Dossier', motto: 'Monospace intel labels, a radar grid and dashed case files.' },
+  kinetic: { name: 'Kinetic Brutalism', short: 'Kinetic', motto: 'Hazard lines, hard shadows and heavy stamped type.' },
 };
 
 export const ROLES = {
@@ -40,5 +31,3 @@ export const ROLES = {
 export const HYPE_TASK = `Crowd reactions, gasps, slow claps and keeping the energy at 1000%. Earn +${HYPE_CREW_XP} XP if the squad completes it.`;
 
 export const DIFFICULTY = { spicy: 'Spicy', fast: 'Fast', oscar: 'Oscar Worthy' };
-
-export const BOT_NAMES = ['Alex', 'Sam', 'Jordan', 'Taylor', 'Riley', 'Casey', 'Morgan', 'Quinn'];

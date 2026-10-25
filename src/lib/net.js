@@ -5,7 +5,7 @@
 // Both expose the same tiny interface, so the game layer never knows which one is used.
 
 import Peer from 'peerjs';
-import { getSupabase } from './db';
+import { getSupabase } from './database';
 
 const PREFIX = 'squadroulette-v2-room-';
 

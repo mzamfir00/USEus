@@ -3,7 +3,6 @@
 
 import { MISSIONS, PENALTY_DARES } from './missions';
 import {
-  BOT_NAMES,
   CATEGORIES,
   CHICKEN_PENALTY,
   DEFAULT_PACK,
@@ -12,7 +11,6 @@ import {
   MAX_PLAYERS,
   SABOTEUR_BONUS,
   SPEED_BONUS,
-  ARCHETYPES,
 } from './constants';
 
 export const missionById = (id) => MISSIONS.find((m) => m.id === id) || null;
@@ -69,7 +67,7 @@ export function createRoom({ code, host, saved }) {
     phase: 'lobby',
     category: saved?.category || 'supermarket',
     packName: saved?.packName || DEFAULT_PACK,
-    players: [{ ...host, isHost: true, isBot: false, connected: true, xp: scores[host.username] || 0 }],
+    players: [{ ...host, isHost: true, connected: true, xp: scores[host.username] || 0 }],
     order: [],
     usedIds: [],
     round: null,
@@ -81,7 +79,7 @@ export function createRoom({ code, host, saved }) {
   };
 }
 
-const activePlayers = (s) => s.players.filter((p) => p.connected || p.isBot);
+const activePlayers = (s) => s.players.filter((p) => p.connected);
 
 export const timerRemaining = (t, now) => (t.running ? Math.max(0, t.endsAt - now) : t.remaining);
 
@@ -151,7 +149,6 @@ function timerOp(t, op, now) {
   }
   if (op === 'add') return t.running ? { ...t, endsAt: t.endsAt + 60000 } : { ...t, remaining: left + 60000 };
   if (op === 'reset') return { ...t, running: false, endsAt: null, remaining: t.duration * 1000 };
-  if (op === 'sim10') return { ...t, running: true, endsAt: now + 10000, remaining: 10000 };
   return t;
 }
 
@@ -213,23 +210,8 @@ function resolveRound(s, outcome, saboteurWon, now) {
     penalty: outcome === 'chicken' ? pick(PENALTY_DARES).replace('{name}', p1Name) : null,
     roundKey: `${s.code}:${r.n}:${r.spinId}`,
     evolved: before.stage !== after.stage || before.style !== after.style ? after : null,
-  };
-}
-
-function makeBot(s) {
-  const used = new Set(s.players.map((p) => p.name));
-  const name = BOT_NAMES.find((n) => !used.has(n)) || `Player ${s.players.length + 1}`;
-  return {
-    id: `bot-${rid()}`,
-    username: `${name.toLowerCase()}_${rid().slice(0, 3)}`,
-    name,
-    age: null,
-    archetype: pick(ARCHETYPES).id,
-    isHost: false,
-    isBot: true,
-    ownerId: s.hostId,
-    connected: true,
-    xp: 0,
+    // Completing a mission in an evolved room unlocks that Room Aesthetic for everyone who played.
+    unlock: outcome === 'complete' && after.stage > 0 ? after.style : null,
   };
 }
 
@@ -246,7 +228,7 @@ export function reduce(prev, actorId, a, now = Date.now()) {
         Object.assign(existing, a.player, { connected: true });
       } else {
         if (s.players.length >= MAX_PLAYERS) return prev;
-        s.players.push({ ...a.player, isHost: false, isBot: false, connected: true, xp: s.scores[a.player.username] || 0 });
+        s.players.push({ ...a.player, isHost: false, connected: true, xp: s.scores[a.player.username] || 0 });
       }
       break;
     }
@@ -261,11 +243,6 @@ export function reduce(prev, actorId, a, now = Date.now()) {
       if (!p || p.isHost) return prev;
       if (s.phase === 'lobby') s.players = s.players.filter((x) => x.id !== a.id);
       else p.connected = false;
-      break;
-    }
-    case 'addBot': {
-      if (!isHost || s.players.length >= MAX_PLAYERS) return prev;
-      s.players.push(makeBot(s));
       break;
     }
     case 'remove': {
@@ -331,9 +308,8 @@ export function reduce(prev, actorId, a, now = Date.now()) {
   return s;
 }
 
-// What one phone is allowed to see. `viewerIds` = the phone's own player plus any
-// pass-the-phone bots it controls. The saboteur identity is only included for its owner
-// until the round is scored.
+// What one phone is allowed to see. The saboteur identity is only included for its
+// owner's phone until the round is scored.
 export function viewFor(s, viewerIds, now = Date.now()) {
   const { secret, ...pub } = s;
   const sab = secret?.saboteurId;

@@ -4,7 +4,9 @@
 
 html,
 body {
-  background: #09090b;
-  -webkit-tap-highlight-color: transparent;
+  background: #000;
   overscroll-behavior: none;
 }
+
+.noscroll::-webkit-scrollbar { display: none; }
+.noscroll { scrollbar-width: none; }

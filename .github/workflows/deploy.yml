@@ -49,6 +49,9 @@ jobs:
         env:
           # Project sites are served from /<repo>/, so assets need that prefix.
           BASE_PATH: ${{ steps.pages.outputs.base_path }}/
+          # Optional cloud database: add these as repository secrets to enable it.
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3

@@ -5,10 +5,10 @@ import {
   loadRoom,
   publicProfile,
   recordMission,
-  recordRoomPlayers,
   rememberPlayers,
+  rememberVisit,
   saveRoom,
-} from '../lib/db';
+} from '../lib/database';
 import { createRoom, missionById, reduce, viewFor } from '../game/engine';
 import { MAX_PLAYERS } from '../game/constants';
 
@@ -51,14 +51,19 @@ export function useRoom(profile, onProfileUpdate) {
 
   /* ------------------------------ shared ---------------------------------- */
 
-  const seenRef = useRef({ players: '', roundKey: null });
+  const seenRef = useRef({ players: '', roundKey: null, dna: '' });
   const afterView = useCallback((v) => {
+    const me = profileRef.current;
     const sig = v.players.map((p) => p.id).join(',');
     if (sig !== seenRef.current.players) {
       seenRef.current.players = sig;
-      rememberPlayers(v.players);
+      rememberPlayers(v.players, me?.id);
     }
-    const me = profileRef.current;
+    const dnaSig = `${v.code}:${v.dna.completed}`;
+    if (v.hostId !== me?.id && dnaSig !== seenRef.current.dna) {
+      seenRef.current.dna = dnaSig;
+      rememberVisit(v.code, v.dna);
+    }
     const res = v.results;
     if (me && res?.stats?.[me.id] && res.roundKey !== seenRef.current.roundKey) {
       seenRef.current.roundKey = res.roundKey;
@@ -71,7 +76,7 @@ export function useRoom(profile, onProfileUpdate) {
         at: Date.now(),
         squad: v.players.filter((p) => r.participants.includes(p.id)).map((p) => p.name),
       };
-      applyRoundStats(me.username, res.roundKey, res.stats[me.id], entry).then((updated) => {
+      applyRoundStats(me.id, res.roundKey, res.stats[me.id], entry, res.unlock).then((updated) => {
         if (updated) onProfileRef.current?.(updated);
       });
     }
@@ -79,22 +84,19 @@ export function useRoom(profile, onProfileUpdate) {
 
   /* ------------------------------- host ----------------------------------- */
 
-  const hostViewers = (game) => [game.hostId, ...game.players.filter((p) => p.isBot).map((p) => p.id)];
-
   const broadcast = useCallback(() => {
     const h = host.current;
     if (!h) return;
     const now = Date.now();
     h.conns.forEach((pid, connId) => h.bus.send(connId, { t: 'state', v: viewFor(h.game, [pid], now) }));
-    setView(viewFor(h.game, hostViewers(h.game), now));
+    setView(viewFor(h.game, [h.game.hostId], now));
   }, []);
 
   const persist = useCallback((prev, next) => {
     const me = profileRef.current;
-    if (next.players.length !== prev.players.length) recordRoomPlayers(next.code, next.players);
     if (next.results && next.results.roundKey !== prev.results?.roundKey) {
       const r = next.round;
-      saveRoom(next.code, { host: me.username, dna: next.dna, scores: next.scores, category: next.category, packName: next.packName });
+      saveRoom(next.code, { hostId: me.id, dna: next.dna, scores: next.scores, category: next.category, packName: next.packName });
       recordMission({
         room: next.code,
         missionId: r.missionId,
@@ -104,7 +106,7 @@ export function useRoom(profile, onProfileUpdate) {
         players: next.players.filter((p) => r.participants.includes(p.id)).map((p) => p.username),
       });
     } else if (next.category !== prev.category || next.packName !== prev.packName) {
-      saveRoom(next.code, { host: me.username, dna: next.dna, scores: next.scores, category: next.category, packName: next.packName });
+      saveRoom(next.code, { hostId: me.id, dna: next.dna, scores: next.scores, category: next.category, packName: next.packName });
     }
   }, []);
 
@@ -136,7 +138,7 @@ export function useRoom(profile, onProfileUpdate) {
       if (!h || !msg) return;
       if (msg.t === 'hello' && msg.player?.id && msg.player?.username) {
         const p = msg.player;
-        if (p.username === profileRef.current.username) {
+        if (p.id === profileRef.current.id) {
           h.bus.send(connId, { t: 'denied', reason: 'same-account' });
           return;
         }
@@ -151,7 +153,7 @@ export function useRoom(profile, onProfileUpdate) {
         h.lastSeen.set(p.id, Date.now());
         dispatch(p.id, {
           type: 'join',
-          player: { id: p.id, username: p.username, name: p.name, age: p.age, archetype: p.archetype },
+          player: { id: p.id, username: p.username, name: p.name },
         });
         broadcast(); // make sure the newcomer gets a view even if nothing changed
         return;
@@ -242,7 +244,7 @@ export function useRoom(profile, onProfileUpdate) {
       let code = preferredCode || randomCode();
       for (let attempt = 0; attempt < 6; attempt += 1) {
         const saved = await loadRoom(code);
-        const mine = saved && saved.host === me.username ? saved : null;
+        const mine = saved && saved.hostId === me.id ? saved : null;
         if (saved && !mine) {
           code = randomCode(); // someone else's room code
           continue;
@@ -258,13 +260,13 @@ export function useRoom(profile, onProfileUpdate) {
         if (sessionRef.current !== session) return;
         if (result === 'ok') {
           const h = host.current;
-          saveRoom(code, { host: me.username, dna: h.game.dna, scores: h.game.scores, category: h.game.category, packName: h.game.packName });
+          saveRoom(code, { hostId: me.id, dna: h.game.dna, scores: h.game.scores, category: h.game.category, packName: h.game.packName });
           h.timers.push(
             setInterval(() => {
               dispatch(h.game.hostId, { type: 'tick' });
               const now = Date.now();
               h.game.players.forEach((p) => {
-                if (!p.isHost && !p.isBot && p.connected && now - (h.lastSeen.get(p.id) || 0) > PEER_TIMEOUT_MS) {
+                if (!p.isHost && p.connected && now - (h.lastSeen.get(p.id) || 0) > PEER_TIMEOUT_MS) {
                   dispatch(p.id, { type: 'disconnect', id: p.id });
                 }
               });
