@@ -407,7 +407,9 @@ export async function refreshAccount(account) {
     if (error) throw error;
     return Array.isArray(data) ? data[0] : data;
   });
-  if (account.pendingSync) await syncPending(account);
+  // `undefined` = the cloud answered but has no such account (created before the cloud
+  // was connected): upload it so the same login works on every device. `null` = offline.
+  if (account.pendingSync || (row === undefined && isCloud())) await syncPending(account);
   if (!row) return accounts()[account.id] || account;
   const friends = await loadFriendIds(account.id, account.friends || []);
   return saveLocal({ ...accounts()[account.id], ...fromRow(row, account.passHash), friends });
