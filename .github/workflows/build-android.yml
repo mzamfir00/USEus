@@ -39,11 +39,11 @@ jobs:
           java-version: '21'
           cache: gradle
 
-      - name: Set up Android SDK
+      # The action's default package list includes the retired 'tools' package, so name them.
+      - name: Set up Android SDK (API 36)
         uses: android-actions/setup-android@v3
-
-      - name: Install Android platform (API 36)
-        run: sdkmanager --install "platforms;android-36" "build-tools;36.0.0" "platform-tools"
+        with:
+          packages: platform-tools platforms;android-36 build-tools;36.0.0
 
       - name: Install dependencies
         run: |
