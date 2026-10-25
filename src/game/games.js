@@ -1,0 +1,214 @@
+// Arenas, game modes and their content.
+
+export const ARENAS = {
+  indoor: { id: 'indoor', label: 'Indoor', full: 'Indoor / Apartment', style: 'auteur', missionCategory: 'creator' },
+  park: { id: 'park', label: 'Park', full: 'Park / Outdoors', style: 'dossier', missionCategory: 'streets' },
+  supermarket: { id: 'supermarket', label: 'Supermarket', full: 'Supermarket / Mall', style: 'auteur', missionCategory: 'supermarket' },
+  streets: { id: 'streets', label: 'City Streets', full: 'City Streets', style: 'dossier', missionCategory: 'streets' },
+  roadtrip: { id: 'roadtrip', label: 'Roadtrip', full: 'Roadtrip / Spot', style: 'kinetic', missionCategory: 'roadtrip' },
+};
+
+const ALL = Object.keys(ARENAS);
+
+export const GAMES = {
+  blind_sonar: {
+    id: 'blind_sonar',
+    name: 'Blind Sonar',
+    tagline: 'One blind hunter. Everyone else films — and beeps.',
+    arenas: ['indoor', 'park'],
+    min: 2,
+    duration: 180,
+    starter: 'Blind Hunter',
+    films: true,
+    roles: {
+      hunter: {
+        label: 'The Blind Hunter',
+        brief: 'Close your eyes or blindfold yourself. Tap anywhere on your screen to send a sonar pulse — every survivor’s phone beeps. Catch someone, then tap “I caught someone”.',
+      },
+      survivor: {
+        label: 'Survivor',
+        brief: 'Film the hunter. When a sonar pulse hits, your phone beeps loudly — dodge without a sound. Tap Near miss when they come within a metre.',
+      },
+    },
+  },
+  paparazzi: {
+    id: 'paparazzi',
+    name: 'Paparazzi Sniper',
+    tagline: 'Photograph your secret target before they spot you.',
+    arenas: ALL,
+    min: 2,
+    duration: 240,
+    films: false,
+    roles: {
+      sniper: {
+        label: 'Sniper',
+        brief: 'Your target is private. Snap them when they are not looking at your lens. Everyone votes on every shot at the end.',
+      },
+    },
+  },
+  teleprompter: {
+    id: 'teleprompter',
+    name: 'Blind Teleprompter',
+    tagline: 'The actor reads a live ad. The squad sabotages the script.',
+    arenas: ['supermarket', 'indoor', 'streets'],
+    min: 2,
+    duration: 150,
+    starter: 'Actor',
+    films: true,
+    roles: {
+      actor: { label: 'Actor', brief: 'Read the teleprompter out loud like a real commercial. Obey every stage direction that appears — instantly.' },
+      director: { label: 'Director', brief: 'Film the commercial. The script is mirrored on your screen so you can cue the actor.' },
+      saboteur: { label: 'Prompt Saboteur', brief: 'Tap stage directions to inject them onto the actor’s teleprompter mid-take.' },
+    },
+  },
+  red_light: {
+    id: 'red_light',
+    name: 'Red Light Freeze Cam',
+    tagline: 'Move on green. Freeze on red. Your phone can tell.',
+    arenas: ['park', 'indoor', 'roadtrip', 'streets'],
+    min: 2,
+    duration: 180,
+    starter: 'Watcher',
+    films: true,
+    roles: {
+      watcher: { label: 'The Watcher', brief: 'Stand far away, back to the runners. Toggle green and red. Anyone whose phone moves on red is out.' },
+      runner: { label: 'Runner', brief: 'Film as you sneak toward the watcher. On red, freeze — your phone’s motion sensor is watching. Tag the watcher to win.' },
+    },
+  },
+  hot_potato: {
+    id: 'hot_potato',
+    name: 'Timebomb Hot Potato',
+    tagline: 'Do the dare, pass the bomb. Don’t be holding it.',
+    arenas: ALL,
+    min: 2,
+    duration: 90,
+    starter: 'First holder',
+    films: false,
+    roles: {
+      player: { label: 'Player', brief: 'If the bomb lands on your phone, do the 5-second dare, then pass it to someone else before it explodes.' },
+    },
+  },
+  undercover: {
+    id: 'undercover',
+    name: 'Undercover Saboteur',
+    tagline: 'One challenge. One hidden saboteur. Then everyone votes.',
+    arenas: ALL,
+    min: 3,
+    duration: 180,
+    films: true,
+    roles: {
+      crew: { label: 'Crew', brief: 'Complete the group challenge on camera. Watch everyone — one of you is secretly sabotaging it.' },
+      saboteur: { label: 'Undercover Saboteur', brief: 'Join the challenge, but sneak your 3 covert tasks into the video without getting caught.' },
+    },
+  },
+};
+
+export const gamesFor = (arena, playerCount) =>
+  Object.values(GAMES).filter((g) => g.arenas.includes(arena) && playerCount >= g.min);
+
+/* ------------------------------ teleprompter ----------------------------- */
+
+export const PRODUCTS = {
+  indoor: ['a single lonely sock', 'the TV remote', 'a houseplant', 'a wooden spoon', 'a throw pillow'],
+  park: ['a perfectly average pinecone', 'a heroic stick', 'a park bench', 'a fallen leaf', 'a smooth rock'],
+  supermarket: ['the weirdest vegetable in this aisle', 'the cheapest cereal on the shelf', 'a mystery can with no label', 'bubble wrap', 'a family-size bag of air (chips)'],
+  streets: ['a bus stop', 'the nearest lamppost', 'a city pigeon (from a respectful distance)', 'a crosswalk button', 'a very ordinary bin'],
+  roadtrip: ['a gas station snack', 'the car air freshener', 'a crumpled receipt', 'the cup holder', 'a travel neck pillow'],
+};
+
+const VERBS = ['talk to pigeons', 'parallel park', 'reply to my emails', 'leave the group chat on read', 'dance at weddings'];
+
+export const scriptFor = (product, rand) => {
+  const verb = VERBS[Math.floor(rand() * VERBS.length)];
+  return [
+    `Are you tired of living a life without ${product}?`,
+    'I was. Until today.',
+    `Introducing… ${product}. Crafted by monks. Tested by astronauts.`,
+    'Hold it. Feel it. Smell it — no, really, smell it.',
+    'Doctors don’t recommend it. My mom does.',
+    `With ${product}, I finally have the confidence to ${verb}.`,
+    'Side effects include main-character energy and sudden applause.',
+    `Order now and get a second ${product} absolutely free.*`,
+    '*Free means nothing is free.',
+    `${product.charAt(0).toUpperCase()}${product.slice(1)}. Because you deserve this. Probably.`,
+  ];
+};
+
+export const DIRECTIONS = [
+  'Suddenly whisper like it’s a secret',
+  'Hold the item like a newborn baby',
+  'Ask someone nearby (politely) if they approve',
+  'Single dramatic tear',
+  'Switch to a pirate accent',
+  'Slow motion for three seconds',
+  'Stare into the lens. Way too long.',
+  'Announce a shocking plot twist',
+  'Sing the next line like opera',
+  'The item is suddenly extremely heavy',
+  'Get attacked by an imaginary bee',
+  'Wink at the camera — badly',
+];
+
+/* ------------------------------- hot potato ------------------------------ */
+
+export const DARES = [
+  'Spin around twice',
+  'Do three squats',
+  'Say “banana” in three accents',
+  'Strike a superhero pose',
+  'Hop on one leg',
+  'Shred an air-guitar solo',
+  'Do your best robot',
+  'Touch your toes',
+  'Fake the most dramatic sneeze',
+  'Moonwalk two steps',
+  'Make a dinosaur noise',
+  'Salute the camera',
+];
+
+/* ------------------------------- undercover ------------------------------ */
+
+export const COVERT_TASKS = [
+  'Say the word “pineapple” naturally',
+  'Touch your left ear three times',
+  'Get someone to high-five you',
+  'Hum a song for five seconds',
+  'Point at the sky for no reason',
+  'Re-tie a shoelace on camera',
+  'Use the phrase “living legend”',
+  'Fake a dramatic sneeze',
+  'Stand on one leg for five seconds',
+  'Ask someone what time it is',
+  'Wink at the camera',
+  'Clap once, loudly, at a random moment',
+  'Sit down for no reason',
+  'Whisper someone’s name',
+  'Fake a three-second phone call',
+];
+
+/* ---------------------------------- XP ----------------------------------- */
+
+export const XP = {
+  sonarCatch: 400,
+  sonarCaught: -50,
+  sonarSurvive: 250,
+  sonarSurviveCaughtRound: 100,
+  sonarHunterTimeout: 50,
+  nearMiss: 150,
+  validShot: 300,
+  shotTarget: -50,
+  telepromptCast: 200,
+  telepromptActor: 100,
+  inject: 25,
+  runnerWin: 400,
+  runnerSurvive: 100,
+  watcherPerOut: 100,
+  watcherWin: 300,
+  bombSurvive: 150,
+  bombLoser: -100,
+  crewCatch: 250,
+  crewMissed: 50,
+  sabEscape: 300,
+  sabTask: 100,
+  sabCaughtTask: 50,
+};

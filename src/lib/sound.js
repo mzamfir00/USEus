@@ -130,6 +130,44 @@ export const Synth = (() => {
       if (!c) return;
       tone(c, { type: 'sine', freq: 880, endFreq: 520, dur: 0.06, vol: 0.12 });
     },
+    // Loud 2-second sonar: four pings with a falling echo — built to be heard across a room.
+    sonar() {
+      const c = ensure();
+      if (!c) return;
+      [0, 0.5, 1, 1.5].forEach((s) => {
+        tone(c, { type: 'sine', freq: 1480, endFreq: 1180, dur: 0.42, vol: 0.9, start: s, attack: 0.004 });
+        tone(c, { type: 'square', freq: 740, dur: 0.12, vol: 0.25, start: s, filter: { type: 'lowpass', freq: 2400 } });
+        tone(c, { type: 'sine', freq: 1480, endFreq: 1180, dur: 0.3, vol: 0.25, start: s + 0.18 });
+      });
+    },
+    // Freeze siren: two fast up/down sweeps.
+    siren() {
+      const c = ensure();
+      if (!c) return;
+      [0, 0.45].forEach((s) => {
+        tone(c, { type: 'sawtooth', freq: 520, endFreq: 1400, dur: 0.22, vol: 0.35, start: s, filter: { type: 'lowpass', freq: 3200 } });
+        tone(c, { type: 'sawtooth', freq: 1400, endFreq: 520, dur: 0.22, vol: 0.35, start: s + 0.22, filter: { type: 'lowpass', freq: 3200 } });
+      });
+    },
+    boom() {
+      const c = ensure();
+      if (!c) return;
+      noise(c, { dur: 1.4, vol: 1, type: 'lowpass', freq: 2200, endFreq: 60 });
+      tone(c, { type: 'sine', freq: 120, endFreq: 28, dur: 1.4, vol: 1 });
+      tone(c, { type: 'triangle', freq: 60, endFreq: 25, dur: 1.1, vol: 0.6 });
+    },
+    shutter() {
+      const c = ensure();
+      if (!c) return;
+      noise(c, { dur: 0.05, vol: 0.5, type: 'highpass', freq: 2500 });
+      noise(c, { dur: 0.06, vol: 0.4, type: 'bandpass', freq: 1200, start: 0.07 });
+    },
+    blip() {
+      const c = ensure();
+      if (!c) return;
+      tone(c, { type: 'triangle', freq: 660, dur: 0.09, vol: 0.25 });
+      tone(c, { type: 'triangle', freq: 990, dur: 0.12, vol: 0.25, start: 0.08 });
+    },
     whoosh() {
       const c = ensure();
       if (!c) return;

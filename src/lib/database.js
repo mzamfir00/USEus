@@ -571,6 +571,8 @@ export async function recordMission(entry) {
     const { error } = await sb.from('mission_logs').insert({
       room_code: entry.room,
       mission_id: entry.missionId,
+      game: entry.game,
+      location: entry.location,
       category: entry.category,
       outcome: entry.outcome,
       saboteur_won: entry.saboteurWon,

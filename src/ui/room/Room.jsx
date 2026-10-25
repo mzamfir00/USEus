@@ -2,15 +2,15 @@ import React, { useEffect, useRef, useState } from 'react';
 import QRCode from 'qrcode';
 import { Share2, X } from 'lucide-react';
 import { DNA_STYLES } from '../../game/constants';
-import { dnaInfo, timerRemaining } from '../../game/engine';
+import { dnaInfo } from '../../game/engine';
 import { errorText } from '../../hooks/useRoom';
 import { buzz, Synth } from '../../lib/sound';
 import { LevelDots, Sheet } from '../primitives';
+import GameScreen, { ReviewScreen } from '../game/GameScreen';
+import Intro from '../game/Intro';
+import { useNow } from './helpers';
 import Lobby from './Lobby';
-import Mission from './Mission';
-import Overlay from './Overlay';
 import Results from './Results';
-import Spin from './Spin';
 
 export const roomLink = (code) => `${window.location.origin}${import.meta.env.BASE_URL}?room=${code}`;
 
@@ -56,12 +56,12 @@ function DnaSheet({ info, onClose }) {
         {['auteur', 'dossier', 'kinetic'].map((id) => (
           <div key={id} className="flex items-center justify-between px-5 py-3.5">
             <span className="text-[15px] font-medium">{DNA_STYLES[id].name}</span>
-            <span className="muted text-[13px]">{id === 'auteur' ? 'Supermarket · Creator' : id === 'dossier' ? 'City streets' : 'Roadtrip'}</span>
+            <span className="muted text-[13px]">{id === 'auteur' ? 'Indoor · Supermarket' : id === 'dossier' ? 'Park · City streets' : 'Roadtrip'}</span>
           </div>
         ))}
       </div>
       <p className="muted mt-4 text-[13px] leading-relaxed">
-        Every completed mission evolves the room. The vibe you play most decides its style. Players unlock each style for their profile.
+        Every finished round evolves the room. The arena you play most decides its style. Players unlock each style for their profile.
       </p>
     </Sheet>
   );
@@ -87,22 +87,20 @@ function Evolution({ info, onDone }) {
   );
 }
 
-// Countdown beeps + alarm on every phone, whichever screen is open.
+// Last-5-seconds beeps on every phone (not for the bomb, whose fuse is secret).
 function useTimerAlerts(view, serverNow) {
   const prev = useRef(null);
   useEffect(() => {
-    if (view?.phase !== 'round') return undefined;
+    if (view?.phase !== 'round' || view.round.game === 'hot_potato') return undefined;
     const id = setInterval(() => {
-      const t = view.round.timer;
-      const secs = Math.ceil(timerRemaining(t, serverNow()) / 1000);
+      const now = serverNow();
+      if (now < view.round.startsAt) return;
+      const secs = Math.ceil(Math.max(0, view.round.endsAt - now) / 1000);
       if (prev.current !== null && secs !== prev.current) {
-        if (t.running && secs <= 10 && secs > 0) {
-          Synth.beep(secs <= 3);
-          buzz(secs <= 3 ? 50 : 20);
-        }
+        if (secs <= 5 && secs > 0) Synth.beep(secs <= 2);
         if (secs === 0 && prev.current > 0) {
           Synth.alarm();
-          buzz([200, 80, 200, 80, 400]);
+          buzz([200, 80, 200]);
         }
       }
       prev.current = secs;
@@ -127,11 +125,10 @@ function Status({ title, body, busy, onLeave }) {
 }
 
 export default function Room({ room, code, onLeave }) {
-  const { status, view, error, serverNow, intent, role } = room;
+  const { status, view, media, error, serverNow, intent, role } = room;
   const [sheet, setSheet] = useState(null); // invite | dna
-  const [overlay, setOverlay] = useState(false);
-  const [seenSpin, setSeenSpin] = useState(null);
   const [evolved, setEvolved] = useState(null);
+  useNow(view?.phase === 'round' ? 250 : 5000);
   const lastDna = useRef(null);
   const info = dnaInfo(view?.dna);
   useTimerAlerts(view, serverNow);
@@ -142,10 +139,6 @@ export default function Room({ room, code, onLeave }) {
     if (lastDna.current && lastDna.current !== sig && info.stage > 0) setEvolved(info);
     lastDna.current = sig;
   }, [view, info]);
-
-  useEffect(() => {
-    if (view?.phase !== 'round') setOverlay(false);
-  }, [view?.phase]);
 
   const live = view && (status === 'live' || status === 'reconnecting');
   const roomCode = view?.code || code;
@@ -182,18 +175,18 @@ export default function Room({ room, code, onLeave }) {
         <main className="flex flex-1 flex-col pt-2">
           {view.phase === 'lobby' && <Lobby view={view} intent={intent} onInvite={() => setSheet('invite')} />}
           {view.phase === 'round' &&
-            (seenSpin === view.round.spinId ? (
-              <Mission view={view} serverNow={serverNow} intent={intent} onOverlay={() => setOverlay(true)} />
+            (serverNow() < view.round.startsAt ? (
+              <Intro key={view.round.spinId} view={view} serverNow={serverNow} />
             ) : (
-              <Spin key={view.round.spinId} view={view} serverNow={serverNow} onDone={() => setSeenSpin(view.round.spinId)} />
+              <GameScreen key={view.round.spinId} view={view} serverNow={serverNow} intent={intent} media={media} onLeave={onLeave} />
             ))}
-          {view.phase === 'results' && <Results key={view.round.spinId} view={view} intent={intent} serverNow={serverNow} />}
+          {view.phase === 'review' && <ReviewScreen view={view} intent={intent} media={media} />}
+          {view.phase === 'results' && <Results key={view.round.spinId} view={view} intent={intent} media={media} />}
         </main>
       )}
 
       {sheet === 'invite' && roomCode && <InviteSheet code={roomCode} onClose={() => setSheet(null)} />}
       {sheet === 'dna' && <DnaSheet info={info} onClose={() => setSheet(null)} />}
-      {overlay && view?.phase === 'round' && <Overlay view={view} serverNow={serverNow} intent={intent} onClose={() => setOverlay(false)} />}
       {evolved && <Evolution info={evolved} onDone={() => setEvolved(null)} />}
     </div>
   );

@@ -54,13 +54,20 @@ create table if not exists public.rooms (
 create table if not exists public.mission_logs (
   id bigserial primary key,
   room_code text references public.rooms(code),
-  mission_id int not null,
+  mission_id int,
+  game text,
+  location text,
   category text not null,
   outcome text not null check (outcome in ('complete', 'chicken')),
   saboteur_won boolean not null default false,
   players jsonb not null default '[]'::jsonb,
   created_at timestamptz not null default now()
 );
+
+-- Upgrades for projects created from an earlier version of this file.
+alter table public.mission_logs add column if not exists game text;
+alter table public.mission_logs add column if not exists location text;
+alter table public.mission_logs alter column mission_id drop not null;
 
 -- Permanent retention ---------------------------------------------------------
 create or replace function public.block_account_delete() returns trigger

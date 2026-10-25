@@ -1,75 +1,117 @@
-import React, { useState } from 'react';
-import { Check } from 'lucide-react';
-import { CHICKEN_PENALTY, SABOTEUR_BONUS, SPEED_BONUS } from '../../game/constants';
-import { castNames, fillText, missionById, timerRemaining } from '../../game/engine';
+import React, { useEffect } from 'react';
+import { Download, Share2 } from 'lucide-react';
+import { ARENAS, GAMES } from '../../game/games';
+import { canShareClip, downloadClip, shareClip, useClips } from '../../lib/clips';
+import { buzz, Synth } from '../../lib/sound';
 import { Avatar, SectionLabel } from '../primitives';
+import { roundKeyOf } from '../game/GameScreen';
+import { nameOf } from '../game/shared';
+import { formatTime } from './helpers';
 
-export default function Results({ view, intent, serverNow }) {
-  const isHost = view.hostId === view.me;
-  const r = view.round;
-  const m = missionById(r.missionId);
-  const names = castNames(view);
+function Reveal({ view, media }) {
   const res = view.results;
-  const [sabWon, setSabWon] = useState(false);
-  const player = (id) => view.players.find((p) => p.id === id);
-  const timeLeft = timerRemaining(r.timer, serverNow()) > 0;
-
-  if (!res) {
-    return (
-      <div className="enter flex flex-1 flex-col">
-        <div className="flex-1 pt-8">
-          <div className="eyebrow">{fillText(m.title, names, view.packName)}</div>
-          <h2 className="title mt-2">Did the squad pull it off?</h2>
-          {isHost ? (
-            <button type="button" onClick={() => setSabWon((v) => !v)} className="card card-press mt-8 flex w-full items-center gap-4 p-5 text-left" aria-pressed={sabWon}>
-              <span className={`grid h-6 w-6 shrink-0 place-items-center rounded-full border ${sabWon ? 'border-[var(--fg)] bg-[var(--fg)] text-[var(--bg)]' : 'border-[var(--faint)]'}`}>
-                {sabWon && <Check size={14} strokeWidth={3} />}
-              </span>
-              <span>
-                <span className="block text-[15.5px] font-semibold">The saboteur got away with it</span>
-                <span className="muted mt-0.5 block text-[13.5px]">+{SABOTEUR_BONUS} XP to the saboteur. Revealed after scoring.</span>
-              </span>
-            </button>
-          ) : (
-            <p className="muted mt-4 flex items-center gap-2 text-[15px]">
-              <span className="live-dot" /> The host is scoring the mission
-            </p>
-          )}
-        </div>
-        {isHost && (
-          <div className="space-y-3 pb-[calc(20px+var(--safe-bottom))] pt-6">
-            <button type="button" className="btn btn-primary" onClick={() => intent({ type: 'resolve', outcome: 'complete', saboteurWon: sabWon })}>
-              Mission complete · +{m.xp + (timeLeft ? SPEED_BONUS : 0)} XP
-            </button>
-            <button type="button" className="btn btn-secondary" onClick={() => intent({ type: 'resolve', outcome: 'chicken', saboteurWon: sabWon })}>
-              Chickened out · −{CHICKEN_PENALTY} XP
-            </button>
-            <button type="button" className="muted h-10 w-full text-[14px]" onClick={() => intent({ type: 'backToRound' })}>
-              Back to mission
-            </button>
+  const rv = res.reveal || {};
+  switch (res.game) {
+    case 'undercover':
+      return (
+        <div className="card p-5">
+          <div className="eyebrow">The undercover saboteur was</div>
+          <div className="headline mt-1 text-[24px]">{nameOf(view, rv.saboteur)}</div>
+          <div className="mt-3 space-y-1.5">
+            {rv.tasks.map((t, i) => (
+              <div key={t} className={`text-[14.5px] ${rv.done.includes(i) ? '' : 'muted line-through'}`}>
+                {rv.done.includes(i) ? '✓' : '·'} {t}
+              </div>
+            ))}
           </div>
-        )}
-      </div>
-    );
+        </div>
+      );
+    case 'paparazzi':
+      return rv.shots.length ? (
+        <div className="noscroll -mx-6 flex gap-3 overflow-x-auto px-6">
+          {rv.shots.map((s) => (
+            <div key={s.id} className="card w-[150px] shrink-0 overflow-hidden">
+              <div className="aspect-[9/16] bg-black">{media[s.id] && <img src={media[s.id]} alt="" className="h-full w-full object-cover" />}</div>
+              <div className="p-3 text-[12.5px]">
+                <div className="font-semibold">{s.valid ? 'Clean hit' : 'Spotted'}</div>
+                <div className="muted truncate">
+                  {nameOf(view, s.by).split(' ')[0]} → {nameOf(view, s.target).split(' ')[0]}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : null;
+    case 'red_light':
+      return rv.out.length ? <div className="card p-5 text-[14.5px]">Out: {rv.out.map((id) => nameOf(view, id)).join(', ')}</div> : null;
+    case 'hot_potato':
+      return <div className="card p-5 text-[14.5px]">{rv.passes} passes before it blew.</div>;
+    default:
+      return null;
   }
+}
 
-  const complete = res.outcome === 'complete';
+function Clips({ roundKey }) {
+  const clips = useClips(roundKey);
+  if (!clips.length) return null;
+  return (
+    <>
+      <SectionLabel>Your clips from this round</SectionLabel>
+      <div className="space-y-3">
+        {clips.map((c) => (
+          <div key={c.id} className="card overflow-hidden">
+            <video src={c.url} controls playsInline className="aspect-[9/16] max-h-[460px] w-full bg-black object-contain" />
+            <div className="flex items-center gap-2 p-3">
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-[14px] font-semibold">{c.title}</div>
+                <div className="muted text-[12.5px]">
+                  {formatTime(c.durationMs)} · {c.mime.includes('mp4') ? 'MP4' : 'WebM'}
+                </div>
+              </div>
+              <button type="button" className="icon-btn" aria-label="Save video" onClick={() => downloadClip(c)}>
+                <Download size={17} />
+              </button>
+              {canShareClip(c) && (
+                <button type="button" className="icon-btn" aria-label="Share video" onClick={() => shareClip(c)}>
+                  <Share2 size={17} />
+                </button>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+    </>
+  );
+}
+
+export default function Results({ view, intent, media }) {
+  const isHost = view.hostId === view.me;
+  const res = view.results;
+  const r = view.round;
+  const won = res.winners.includes(view.me);
+
+  useEffect(() => {
+    if (res.game === 'hot_potato') {
+      Synth.boom();
+      buzz([400, 100, 200]);
+    } else if (won) Synth.success();
+    else Synth.fail();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [res.roundKey]);
+
   const ranked = [...view.players].sort((a, b) => b.xp - a.xp);
   return (
     <div className="enter flex flex-1 flex-col">
-      <div className="pt-8">
-        <div className="eyebrow">Mission {r.n}</div>
-        <h2 className="title mt-2">{complete ? 'Mission complete' : 'Chickened out'}</h2>
-        {res.penalty && <p className="mt-3 text-[16px] leading-snug">{res.penalty}</p>}
+      <div className="pt-6">
+        <div className="eyebrow">
+          {GAMES[res.game].name} · {res.location || ARENAS[r.arena].full}
+        </div>
+        <h2 className="title mt-2">{res.headline}</h2>
+        <p className="muted mt-2 text-[15px]">{won ? 'You’re on the winning side.' : 'Not your round.'}</p>
       </div>
 
-      <div className="card mt-6 p-5">
-        <div className="eyebrow">The saboteur was</div>
-        <div className="mt-1 flex items-center justify-between gap-3">
-          <span className="headline text-[22px]">{player(res.saboteurId)?.name || 'Someone'}</span>
-          <span className="muted text-[13px]">{res.saboteurWon ? `Got away · +${SABOTEUR_BONUS}` : 'Caught'}</span>
-        </div>
-        <p className="muted mt-2 text-[14px] leading-snug">{fillText(m.twist, names, view.packName)}</p>
+      <div className="mt-6">
+        <Reveal view={view} media={media} />
       </div>
 
       {res.evolved && (
@@ -80,6 +122,8 @@ export default function Results({ view, intent, serverNow }) {
           </span>
         </div>
       )}
+
+      <Clips roundKey={roundKeyOf(view)} />
 
       <SectionLabel>Leaderboard</SectionLabel>
       <div className="card divide overflow-hidden">
@@ -104,16 +148,16 @@ export default function Results({ view, intent, serverNow }) {
         <div className="mx-auto max-w-md px-6 pb-[calc(16px+var(--safe-bottom))]">
           {isHost ? (
             <>
-              <button type="button" className="btn btn-primary" onClick={() => intent({ type: 'spin' })}>
-                Next mission
+              <button type="button" className="btn btn-primary" onClick={() => intent({ type: 'start' })}>
+                {view.settings.mode === 'random' ? 'Spin again' : `Play ${GAMES[view.settings.game].name} again`}
               </button>
               <button type="button" className="muted mt-2 h-11 w-full text-[14px] font-medium" onClick={() => intent({ type: 'lobby' })}>
-                Back to lobby
+                Change arena or game
               </button>
             </>
           ) : (
             <div className="muted flex h-14 items-center justify-center gap-2 text-[15px]">
-              <span className="live-dot" /> Waiting for the next mission
+              <span className="live-dot" /> Waiting for the host
             </div>
           )}
         </div>

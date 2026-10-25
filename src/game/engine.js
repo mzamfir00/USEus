@@ -1,17 +1,21 @@
-// Host-authoritative game engine. Pure functions: the host phone owns the full
-// state (including the saboteur secret) and every phone receives a filtered view.
+// Host-authoritative game engine (pure functions).
+// The host phone owns the full state, including per-player secrets (paparazzi targets,
+// the undercover saboteur, the bomb's fuse). Each phone receives only its own view.
 
-import { MISSIONS, PENALTY_DARES } from './missions';
-import {
-  CATEGORIES,
-  CHICKEN_PENALTY,
-  DEFAULT_PACK,
-  DNA_STYLES,
-  HYPE_CREW_XP,
-  MAX_PLAYERS,
-  SABOTEUR_BONUS,
-  SPEED_BONUS,
-} from './constants';
+import { MISSIONS } from './missions';
+import { DEFAULT_PACK, DNA_STYLES, MAX_PLAYERS } from './constants';
+import { ARENAS, COVERT_TASKS, DARES, DIRECTIONS, GAMES, gamesFor, PRODUCTS, scriptFor, XP } from './games';
+
+export const WHEEL_MS = 3800; // random roulette spin
+export const PICK_MS = 1400; // manual pick reveal
+export const REVEAL_MS = 5000; // role card before the game clock starts
+export const SONAR_COOLDOWN = 12000;
+export const SONAR_WARNING = 3000;
+export const SONAR_BEEP_MS = 2000;
+export const FREEZE_GRACE = 700;
+export const DARE_MS = 5000;
+export const INJECT_COOLDOWN = 5000;
+export const MAX_SHOTS = 3;
 
 export const missionById = (id) => MISSIONS.find((m) => m.id === id) || null;
 
@@ -33,15 +37,8 @@ export const fillText = (text, names, pack) =>
 
 /* ------------------------------- Room DNA -------------------------------- */
 
-export const emptyDNA = () => ({
-  completed: 0,
-  counts: { auteur: 0, dossier: 0, kinetic: 0 },
-  vibes: {},
-  last: null,
-  history: [],
-});
+export const emptyDNA = () => ({ completed: 0, counts: { auteur: 0, dossier: 0, kinetic: 0 }, vibes: {}, last: null, history: [] });
 
-// Stage grows with every completed mission (max 3); style follows the dominant playstyle.
 export function dnaInfo(dna) {
   const d = dna || emptyDNA();
   const stage = Math.min(3, d.completed);
@@ -53,146 +50,299 @@ export function dnaInfo(dna) {
     style = top.includes(d.last) ? d.last : top[0];
   }
   const share = stage > 0 ? Math.round((d.counts[style] / d.completed) * 100) : 0;
-  const topVibe = Object.entries(d.vibes).sort((a, b) => b[1] - a[1])[0]?.[0] || null;
-  return { stage, style, share, completed: d.completed, topVibe, name: DNA_STYLES[style].name, code: DNA_STYLES[style].code };
+  return { stage, style, share, completed: d.completed, name: DNA_STYLES[style].name };
 }
 
-/* ------------------------------ Room state ------------------------------- */
+/* ------------------------------- Room state ------------------------------ */
 
 export function createRoom({ code, host, saved }) {
   const scores = saved?.scores || {};
   return {
     code,
     hostId: host.id,
-    phase: 'lobby',
-    category: saved?.category || 'supermarket',
-    packName: saved?.packName || DEFAULT_PACK,
+    phase: 'lobby', // lobby | round | review | results
+    settings: {
+      arena: saved?.settings?.arena || 'indoor',
+      location: saved?.settings?.location || '',
+      mode: saved?.settings?.mode || 'random',
+      game: saved?.settings?.game || 'blind_sonar',
+      starter: null,
+    },
+    packName: DEFAULT_PACK,
     players: [{ ...host, isHost: true, connected: true, xp: scores[host.username] || 0 }],
-    order: [],
-    usedIds: [],
     round: null,
-    results: null,
     secret: null,
+    results: null,
+    lastGames: [],
     dna: saved?.dna || emptyDNA(),
     scores,
     seq: 0,
   };
 }
 
-const activePlayers = (s) => s.players.filter((p) => p.connected);
+const connected = (s) => s.players.filter((p) => p.connected);
+const nameOf = (s, id) => s.players.find((p) => p.id === id)?.name || 'Someone';
 
-export const timerRemaining = (t, now) => (t.running ? Math.max(0, t.endsAt - now) : t.remaining);
-
-export const castNames = (state) => {
-  const r = state.round;
-  if (!r) return null;
-  const name = (id) => state.players.find((p) => p.id === id)?.name || 'Someone';
-  return {
-    Player1: name(r.cast.p1),
-    Player2: name(r.cast.p2),
-    Player3: r.cast.p3 ? name(r.cast.p3) : 'THE WHOLE SQUAD',
-  };
+// Names injected into undercover challenges ({Player1..3}).
+export const castNames = (view) => {
+  const n = view.round?.data?.names;
+  return n || { Player1: 'Someone', Player2: 'Someone', Player3: 'The whole squad' };
 };
 
-function chooseMission(s) {
-  const pool = MISSIONS.filter((m) => m.category === s.category);
-  let available = pool.filter((m) => !s.usedIds.includes(m.id));
-  if (!available.length) {
-    // Pool exhausted: fresh cycle, but never repeat the mission just played.
-    const last = s.usedIds[s.usedIds.length - 1];
-    available = pool.filter((m) => m.id !== last);
-    s.usedIds = s.usedIds.filter((id) => !pool.some((m) => m.id === id));
+export const roundClock = (round, now) => ({
+  started: now >= round.startsAt,
+  remaining: Math.max(0, round.endsAt - now),
+});
+
+/* ------------------------------- round setup ----------------------------- */
+
+function chooseGame(s, count) {
+  if (s.settings.mode === 'manual') {
+    const g = GAMES[s.settings.game];
+    return g && count >= g.min ? g : null;
   }
-  const chosen = pick(available);
-  s.usedIds.push(chosen.id);
-  return chosen;
+  const pool = gamesFor(s.settings.arena, count);
+  if (!pool.length) return null;
+  // Avoid repeating the last game when there is a choice.
+  const fresh = pool.filter((g) => g.id !== s.lastGames[s.lastGames.length - 1]);
+  return pick(fresh.length ? fresh : pool);
 }
 
 function startRound(s, now) {
-  const active = activePlayers(s).map((p) => p.id);
-  if (active.length < 2) return false;
+  const ids = connected(s).map((p) => p.id);
+  const game = chooseGame(s, ids.length);
+  if (!game) return false;
 
-  // Keep the existing rotation, append newcomers, then rotate one seat per round.
-  let order = s.order.filter((id) => active.includes(id));
-  order = [...order, ...shuffle(active.filter((id) => !order.includes(id)))];
-  if (s.round) order = [...order.slice(1), order[0]];
-  s.order = order;
+  const pool = s.settings.mode === 'random' ? gamesFor(s.settings.arena, ids.length).map((g) => g.id) : [game.id];
+  const lead = s.settings.mode === 'manual' && s.settings.starter && ids.includes(s.settings.starter) ? s.settings.starter : pick(ids);
+  const order = [lead, ...shuffle(ids.filter((id) => id !== lead))];
+  const startsAt = now + (s.settings.mode === 'random' ? WHEEL_MS : PICK_MS) + REVEAL_MS;
+  const roles = {};
+  const secret = { players: {}, host: {} };
+  let data = {};
+  let duration = game.duration;
 
-  const mission = chooseMission(s);
-  const [p1, p2, p3] = order;
-  const extras = order.slice(3);
-  // The saboteur sits outside the two lead roles whenever the squad is big enough.
-  const candidates = order.length >= 4 ? [p3, ...extras] : order.length === 3 ? [p2, p3] : [p2];
+  switch (game.id) {
+    case 'blind_sonar':
+      order.forEach((id, i) => (roles[id] = i === 0 ? 'hunter' : 'survivor'));
+      data = { pulses: 0, pulseAt: null, cooldownUntil: startsAt, nearMiss: {}, nearMissAt: {}, caught: null };
+      break;
+    case 'paparazzi': {
+      const ring = shuffle(ids);
+      ring.forEach((id, i) => {
+        roles[id] = 'sniper';
+        secret.players[id] = { target: ring[(i + 1) % ring.length] };
+      });
+      data = { shots: [], votes: {} };
+      break;
+    }
+    case 'teleprompter': {
+      order.forEach((id, i) => (roles[id] = i === 0 ? 'actor' : i === 1 ? 'director' : 'saboteur'));
+      const product = pick(PRODUCTS[s.settings.arena] || PRODUCTS.indoor);
+      data = { product, script: scriptFor(product, Math.random), injects: [], injectAt: {} };
+      break;
+    }
+    case 'red_light':
+      order.forEach((id, i) => (roles[id] = i === 0 ? 'watcher' : 'runner'));
+      data = { light: 'green', changedAt: startsAt, flips: 0, out: {}, winner: null };
+      break;
+    case 'hot_potato':
+      ids.forEach((id) => (roles[id] = 'player'));
+      data = { holder: lead, since: startsAt, passes: 0, dare: pick(DARES), exploded: null };
+      secret.host.explodeAt = startsAt + 30000 + Math.floor(Math.random() * 40000);
+      duration = 90;
+      break;
+    case 'undercover': {
+      const category = ARENAS[s.settings.arena].missionCategory;
+      const mission = pick(MISSIONS.filter((m) => m.category === category));
+      const sab = pick(order.slice(1).length ? order.slice(1) : order);
+      ids.forEach((id) => (roles[id] = 'crew'));
+      secret.players[sab] = { saboteur: true, tasks: shuffle(COVERT_TASKS).slice(0, 3), done: [] };
+      secret.host.saboteurId = sab;
+      const cast = shuffle(ids);
+      data = {
+        missionId: mission.id,
+        names: { Player1: nameOf(s, cast[0]), Player2: nameOf(s, cast[1]), Player3: cast[2] ? nameOf(s, cast[2]) : 'the whole squad' },
+        votes: {},
+      };
+      duration = Math.min(mission.duration, 240);
+      break;
+    }
+    default:
+      return false;
+  }
 
   s.round = {
     n: (s.round?.n || 0) + 1,
     spinId: rid(),
     spunAt: now,
-    missionId: mission.id,
-    category: s.category,
-    cast: { p1, p2, p3: p3 || null, extras },
-    participants: order,
-    timer: { running: false, endsAt: null, remaining: mission.duration * 1000, duration: mission.duration },
+    mode: s.settings.mode,
+    pool,
+    game: game.id,
+    arena: s.settings.arena,
+    location: s.settings.location.trim(),
+    startsAt,
+    endsAt: startsAt + duration * 1000,
+    participants: ids,
+    roles,
+    data,
   };
-  s.secret = { saboteurId: pick(candidates) };
+  s.secret = secret;
   s.results = null;
   s.phase = 'round';
+  s.lastGames = [...s.lastGames, game.id].slice(-3);
   return true;
 }
 
-function timerOp(t, op, now) {
-  const left = timerRemaining(t, now);
-  if (op === 'toggle') {
-    if (t.running) return { ...t, running: false, endsAt: null, remaining: left };
-    const remaining = left > 0 ? left : t.duration * 1000;
-    return { ...t, running: true, endsAt: now + remaining, remaining };
-  }
-  if (op === 'add') return t.running ? { ...t, endsAt: t.endsAt + 60000 } : { ...t, remaining: left + 60000 };
-  if (op === 'reset') return { ...t, running: false, endsAt: null, remaining: t.duration * 1000 };
-  return t;
-}
+/* -------------------------------- scoring -------------------------------- */
 
-function resolveRound(s, outcome, saboteurWon, now) {
+function finish(s, now, outcome) {
   const r = s.round;
-  const mission = missionById(r.missionId);
-  const sab = s.secret?.saboteurId;
-  const core = [r.cast.p1, r.cast.p2, r.cast.p3].filter(Boolean);
-  const timeLeft = timerRemaining(r.timer, now) > 0;
+  const d = r.data;
   const deltas = {};
+  const winners = new Set();
   const add = (id, n) => {
-    if (id) deltas[id] = (deltas[id] || 0) + n;
+    if (id && r.participants.includes(id)) deltas[id] = (deltas[id] || 0) + n;
   };
+  const role = (id) => r.roles[id];
+  const reveal = {};
+  let headline = '';
+  const secretWins = {};
 
-  if (outcome === 'complete') {
-    core.forEach((id) => add(id, mission.xp + (timeLeft ? SPEED_BONUS : 0)));
-    r.cast.extras.forEach((id) => add(id, HYPE_CREW_XP));
-  } else {
-    core.forEach((id) => add(id, -CHICKEN_PENALTY));
+  switch (r.game) {
+    case 'blind_sonar': {
+      const hunter = r.participants.find((id) => role(id) === 'hunter');
+      const survivors = r.participants.filter((id) => id !== hunter);
+      if (d.caught) {
+        add(hunter, XP.sonarCatch);
+        add(d.caught, XP.sonarCaught);
+        survivors.filter((id) => id !== d.caught).forEach((id) => {
+          add(id, XP.sonarSurviveCaughtRound);
+          winners.add(id);
+        });
+        winners.add(hunter);
+        headline = `${nameOf(s, hunter)} caught ${nameOf(s, d.caught)}`;
+      } else {
+        add(hunter, XP.sonarHunterTimeout);
+        survivors.forEach((id) => {
+          add(id, XP.sonarSurvive);
+          winners.add(id);
+        });
+        headline = 'The survivors escaped the sonar';
+      }
+      Object.entries(d.nearMiss).forEach(([id, n]) => add(id, n * XP.nearMiss));
+      break;
+    }
+    case 'paparazzi': {
+      let valid = 0;
+      reveal.shots = d.shots.map((shot) => {
+        const votes = Object.values(d.votes[shot.id] || {});
+        const yes = votes.filter(Boolean).length;
+        const ok = yes > votes.length - yes;
+        if (ok) {
+          valid += 1;
+          add(shot.by, XP.validShot);
+          add(shot.target, XP.shotTarget);
+          winners.add(shot.by);
+        }
+        return { ...shot, valid: ok, yes, no: votes.length - yes };
+      });
+      reveal.targets = Object.fromEntries(Object.entries(s.secret.players).map(([id, v]) => [id, v.target]));
+      headline = valid ? `${valid} confirmed hit${valid === 1 ? '' : 's'}` : 'Nobody landed a clean shot';
+      break;
+    }
+    case 'teleprompter': {
+      r.participants.forEach((id) => {
+        add(id, XP.telepromptCast);
+        winners.add(id);
+      });
+      add(r.participants.find((id) => role(id) === 'actor'), XP.telepromptActor);
+      d.injects.forEach((i) => add(i.by, XP.inject));
+      headline = `Commercial wrapped with ${d.injects.length} live sabotage${d.injects.length === 1 ? '' : 's'}`;
+      break;
+    }
+    case 'red_light': {
+      const watcher = r.participants.find((id) => role(id) === 'watcher');
+      const runners = r.participants.filter((id) => id !== watcher);
+      const outCount = Object.keys(d.out).length;
+      add(watcher, outCount * XP.watcherPerOut);
+      if (d.winner) {
+        add(d.winner, XP.runnerWin);
+        winners.add(d.winner);
+        runners.filter((id) => id !== d.winner && !d.out[id]).forEach((id) => {
+          add(id, XP.runnerSurvive);
+          winners.add(id);
+        });
+        headline = `${nameOf(s, d.winner)} tagged the watcher`;
+      } else {
+        add(watcher, XP.watcherWin);
+        winners.add(watcher);
+        headline = `${nameOf(s, watcher)} held the line`;
+      }
+      reveal.out = Object.keys(d.out);
+      break;
+    }
+    case 'hot_potato': {
+      const loser = d.exploded || d.holder;
+      r.participants.forEach((id) => {
+        if (id === loser) add(id, XP.bombLoser);
+        else {
+          add(id, XP.bombSurvive);
+          winners.add(id);
+        }
+      });
+      headline = `Boom. It blew up on ${nameOf(s, loser)}`;
+      reveal.loser = loser;
+      reveal.passes = d.passes;
+      break;
+    }
+    case 'undercover': {
+      const sab = s.secret.host.saboteurId;
+      const tally = {};
+      Object.values(d.votes).forEach((v) => {
+        tally[v] = (tally[v] || 0) + 1;
+      });
+      const top = Math.max(0, ...Object.values(tally));
+      const leaders = Object.keys(tally).filter((k) => tally[k] === top);
+      const caught = top > 0 && leaders.length === 1 && leaders[0] === sab;
+      const done = s.secret.players[sab]?.done.length || 0;
+      if (caught) {
+        r.participants.filter((id) => id !== sab).forEach((id) => {
+          add(id, XP.crewCatch);
+          winners.add(id);
+        });
+        add(sab, done * XP.sabCaughtTask);
+        headline = `The squad caught ${nameOf(s, sab)}`;
+      } else {
+        add(sab, XP.sabEscape + done * XP.sabTask);
+        r.participants.filter((id) => id !== sab).forEach((id) => add(id, XP.crewMissed));
+        winners.add(sab);
+        secretWins[sab] = 1;
+        headline = `${nameOf(s, sab)} got away with it`;
+      }
+      reveal.saboteur = sab;
+      reveal.tasks = s.secret.players[sab]?.tasks || [];
+      reveal.done = s.secret.players[sab]?.done || [];
+      reveal.tally = tally;
+      break;
+    }
+    default:
+      break;
   }
-  if (saboteurWon) add(sab, SABOTEUR_BONUS);
 
   const before = dnaInfo(s.dna);
-  if (outcome === 'complete') {
-    const style = CATEGORIES[r.category].style;
-    s.dna.completed += 1;
-    s.dna.counts[style] += 1;
-    s.dna.vibes[r.category] = (s.dna.vibes[r.category] || 0) + 1;
-    s.dna.last = style;
-    s.dna.history = [...s.dna.history, { missionId: mission.id, category: r.category, at: now }].slice(-20);
-  }
+  const style = ARENAS[r.arena].style;
+  s.dna.completed += 1;
+  s.dna.counts[style] += 1;
+  s.dna.vibes[r.arena] = (s.dna.vibes[r.arena] || 0) + 1;
+  s.dna.last = style;
+  s.dna.history = [...s.dna.history, { game: r.game, arena: r.arena, at: now }].slice(-20);
   const after = dnaInfo(s.dna);
 
   const stats = {};
   r.participants.forEach((id) => {
-    stats[id] = {
-      xp: deltas[id] || 0,
-      missions: outcome === 'complete' ? 1 : 0,
-      secretWins: saboteurWon && id === sab ? 1 : 0,
-      rounds: 1,
-      chickened: outcome === 'chicken' && core.includes(id) ? 1 : 0,
-    };
+    stats[id] = { xp: deltas[id] || 0, missions: winners.has(id) ? 1 : 0, secretWins: secretWins[id] || 0, rounds: 1, chickened: 0 };
   });
-
   s.players.forEach((p) => {
     if (deltas[p.id]) {
       p.xp += deltas[p.id];
@@ -200,33 +350,49 @@ function resolveRound(s, outcome, saboteurWon, now) {
     }
   });
 
-  const p1Name = s.players.find((p) => p.id === r.cast.p1)?.name || 'The main character';
   s.results = {
+    game: r.game,
     outcome,
-    saboteurWon,
-    saboteurId: sab,
+    headline,
+    winners: [...winners],
     deltas,
     stats,
-    penalty: outcome === 'chicken' ? pick(PENALTY_DARES).replace('{name}', p1Name) : null,
+    reveal,
+    location: r.location,
     roundKey: `${s.code}:${r.n}:${r.spinId}`,
     evolved: before.stage !== after.stage || before.style !== after.style ? after : null,
-    // Completing a mission in an evolved room unlocks that Room Aesthetic for everyone who played.
-    unlock: outcome === 'complete' && after.stage > 0 ? after.style : null,
+    unlock: after.stage > 0 ? after.style : null,
   };
+  s.phase = 'results';
 }
 
-// Applies one intent from `actorId`. Returns the previous state object when nothing changes.
+// Ends active play: games with a vote go to review, the rest straight to results.
+function endPlay(s, now, reason) {
+  const g = s.round.game;
+  if (g === 'paparazzi' || g === 'undercover') {
+    s.phase = 'review';
+    s.round.reviewSince = now;
+    s.round.endReason = reason;
+  } else finish(s, now, reason);
+}
+
+/* --------------------------------- reducer ------------------------------- */
+
 export function reduce(prev, actorId, a, now = Date.now()) {
   const s = structuredClone(prev);
   const isHost = actorId === s.hostId;
   const find = (id) => s.players.find((p) => p.id === id);
+  const r = s.round;
+  const inPlay = s.phase === 'round' && r && now >= r.startsAt;
+  const isPlayer = r?.participants.includes(actorId);
+  const myRole = r?.roles[actorId];
 
   switch (a.type) {
+    /* ---- roster ---- */
     case 'join': {
       const existing = find(a.player.id);
-      if (existing) {
-        Object.assign(existing, a.player, { connected: true });
-      } else {
+      if (existing) Object.assign(existing, a.player, { connected: true });
+      else {
         if (s.players.length >= MAX_PLAYERS) return prev;
         s.players.push({ ...a.player, isHost: false, connected: true, xp: s.scores[a.player.username] || 0 });
       }
@@ -248,51 +414,23 @@ export function reduce(prev, actorId, a, now = Date.now()) {
     case 'remove': {
       if (!isHost || a.id === s.hostId) return prev;
       s.players = s.players.filter((p) => p.id !== a.id);
-      s.order = s.order.filter((id) => id !== a.id);
       break;
     }
-    case 'category': {
-      if (!isHost || !CATEGORIES[a.category] || s.phase !== 'lobby') return prev;
-      s.category = a.category;
+
+    /* ---- host setup ---- */
+    case 'settings': {
+      if (!isHost || s.phase !== 'lobby') return prev;
+      const next = { ...s.settings };
+      if (a.arena && ARENAS[a.arena]) next.arena = a.arena;
+      if (typeof a.location === 'string') next.location = a.location.slice(0, 48);
+      if (a.mode === 'random' || a.mode === 'manual') next.mode = a.mode;
+      if (a.game && GAMES[a.game]) next.game = a.game;
+      if ('starter' in a) next.starter = a.starter || null;
+      s.settings = next;
       break;
     }
-    case 'pack': {
-      if (!isHost) return prev;
-      s.packName = (a.name || '').trim().toUpperCase().slice(0, 28) || DEFAULT_PACK;
-      break;
-    }
-    case 'spin': {
-      if (!isHost || !startRound(s, now)) return prev;
-      break;
-    }
-    case 'timer': {
-      if (s.phase !== 'round' || !s.round) return prev;
-      const isPlayer = s.round.participants.includes(actorId) || isHost;
-      if (!isPlayer) return prev;
-      s.round.timer = timerOp(s.round.timer, a.op, now);
-      break;
-    }
-    case 'tick': {
-      // Host-internal: stop an expired timer.
-      const t = s.round?.timer;
-      if (s.phase !== 'round' || !t?.running || t.endsAt > now) return prev;
-      s.round.timer = { ...t, running: false, endsAt: null, remaining: 0 };
-      break;
-    }
-    case 'score': {
-      if (!isHost || s.phase !== 'round') return prev;
-      if (s.round.timer.running) s.round.timer = timerOp(s.round.timer, 'toggle', now);
-      s.phase = 'results';
-      break;
-    }
-    case 'backToRound': {
-      if (!isHost || s.phase !== 'results' || s.results) return prev;
-      s.phase = 'round';
-      break;
-    }
-    case 'resolve': {
-      if (!isHost || s.phase !== 'results' || s.results) return prev;
-      resolveRound(s, a.outcome === 'complete' ? 'complete' : 'chicken', !!a.saboteurWon, now);
+    case 'start': {
+      if (!isHost || !(s.phase === 'lobby' || s.phase === 'results') || !startRound(s, now)) return prev;
       break;
     }
     case 'lobby': {
@@ -301,6 +439,133 @@ export function reduce(prev, actorId, a, now = Date.now()) {
       s.secret = null;
       break;
     }
+
+    /* ---- shared ---- */
+    case 'tick': {
+      if (!r) return prev;
+      if (s.phase === 'round') {
+        if (r.game === 'hot_potato' && now >= s.secret.host.explodeAt) {
+          r.data.exploded = r.data.holder;
+          finish(s, now, 'exploded');
+        } else if (now >= r.endsAt) {
+          if (r.game === 'hot_potato') {
+            r.data.exploded = r.data.holder;
+            finish(s, now, 'exploded');
+          } else endPlay(s, now, 'time');
+        } else return prev;
+      } else return prev;
+      break;
+    }
+    case 'end': {
+      if (!r || s.phase !== 'round') return prev;
+      const directorCanEnd = r.game === 'teleprompter' && myRole === 'director';
+      if (!isHost && !directorCanEnd) return prev;
+      endPlay(s, now, 'host');
+      break;
+    }
+    case 'finishReview': {
+      if (!isHost || s.phase !== 'review') return prev;
+      finish(s, now, r.endReason || 'time');
+      break;
+    }
+
+    /* ---- Blind Sonar ---- */
+    case 'sonar': {
+      if (!inPlay || r.game !== 'blind_sonar' || myRole !== 'hunter' || now < r.data.cooldownUntil) return prev;
+      r.data.pulses += 1;
+      r.data.pulseAt = now + SONAR_WARNING;
+      r.data.cooldownUntil = now + SONAR_COOLDOWN;
+      break;
+    }
+    case 'nearMiss': {
+      if (!inPlay || r.game !== 'blind_sonar' || myRole !== 'survivor') return prev;
+      const count = r.data.nearMiss[actorId] || 0;
+      if (count >= 3 || now - (r.data.nearMissAt[actorId] || 0) < 8000) return prev;
+      r.data.nearMiss[actorId] = count + 1;
+      r.data.nearMissAt[actorId] = now;
+      break;
+    }
+    case 'caught': {
+      if (!inPlay || r.game !== 'blind_sonar' || myRole !== 'hunter' || r.roles[a.id] !== 'survivor') return prev;
+      r.data.caught = a.id;
+      finish(s, now, 'caught');
+      break;
+    }
+
+    /* ---- Paparazzi ---- */
+    case 'shot': {
+      if (!inPlay || r.game !== 'paparazzi' || !isPlayer) return prev;
+      const mine = r.data.shots.filter((x) => x.by === actorId).length;
+      if (mine >= MAX_SHOTS || !a.id) return prev;
+      r.data.shots.push({ id: a.id, by: actorId, target: s.secret.players[actorId].target, at: now });
+      break;
+    }
+    case 'voteShot': {
+      if (s.phase !== 'review' || r.game !== 'paparazzi' || !isPlayer) return prev;
+      const shot = r.data.shots.find((x) => x.id === a.id);
+      if (!shot || shot.by === actorId) return prev;
+      r.data.votes[a.id] = { ...(r.data.votes[a.id] || {}), [actorId]: !!a.valid };
+      break;
+    }
+
+    /* ---- Teleprompter ---- */
+    case 'inject': {
+      if (!inPlay || r.game !== 'teleprompter' || !isPlayer || myRole === 'actor') return prev;
+      if (myRole === 'director' && r.participants.length > 2) return prev;
+      if (now - (r.data.injectAt[actorId] || 0) < INJECT_COOLDOWN || !DIRECTIONS[a.i]) return prev;
+      r.data.injects.push({ text: DIRECTIONS[a.i], by: actorId, at: now });
+      r.data.injectAt[actorId] = now;
+      break;
+    }
+
+    /* ---- Red Light ---- */
+    case 'light': {
+      if (!inPlay || r.game !== 'red_light' || myRole !== 'watcher' || now - r.data.changedAt < 1500) return prev;
+      r.data.light = r.data.light === 'green' ? 'red' : 'green';
+      r.data.changedAt = now;
+      r.data.flips += 1;
+      break;
+    }
+    case 'moved': {
+      if (!inPlay || r.game !== 'red_light' || myRole !== 'runner' || r.data.out[actorId]) return prev;
+      if (r.data.light !== 'red' || now - r.data.changedAt < FREEZE_GRACE) return prev;
+      r.data.out[actorId] = now;
+      const runners = r.participants.filter((id) => r.roles[id] === 'runner');
+      if (runners.every((id) => r.data.out[id])) finish(s, now, 'all-out');
+      break;
+    }
+    case 'tagged': {
+      if (!inPlay || r.game !== 'red_light' || myRole !== 'runner' || r.data.out[actorId]) return prev;
+      r.data.winner = actorId;
+      finish(s, now, 'tagged');
+      break;
+    }
+
+    /* ---- Hot Potato ---- */
+    case 'pass': {
+      if (!inPlay || r.game !== 'hot_potato' || r.data.holder !== actorId) return prev;
+      if (now - r.data.since < DARE_MS || a.to === actorId || !r.participants.includes(a.to) || !find(a.to)?.connected) return prev;
+      r.data.holder = a.to;
+      r.data.since = now;
+      r.data.passes += 1;
+      r.data.dare = pick(DARES.filter((d) => d !== r.data.dare));
+      break;
+    }
+
+    /* ---- Undercover ---- */
+    case 'task': {
+      const mine = s.secret?.players[actorId];
+      if (!inPlay || r.game !== 'undercover' || !mine?.saboteur || !mine.tasks[a.i] || mine.done.includes(a.i)) return prev;
+      mine.done.push(a.i);
+      break;
+    }
+    case 'accuse': {
+      if (s.phase !== 'review' || r.game !== 'undercover' || !isPlayer || !r.participants.includes(a.id) || a.id === actorId) return prev;
+      r.data.votes[actorId] = a.id;
+      if (r.participants.filter((id) => find(id)?.connected).every((id) => r.data.votes[id])) finish(s, now, 'votes');
+      break;
+    }
+
     default:
       return prev;
   }
@@ -308,16 +573,8 @@ export function reduce(prev, actorId, a, now = Date.now()) {
   return s;
 }
 
-// What one phone is allowed to see. The saboteur identity is only included for its
-// owner's phone until the round is scored.
-export function viewFor(s, viewerIds, now = Date.now()) {
+// What one phone may see: public state + only its own secret slice.
+export function viewFor(s, viewerId, now = Date.now()) {
   const { secret, ...pub } = s;
-  const sab = secret?.saboteurId;
-  return {
-    ...pub,
-    now,
-    me: viewerIds[0],
-    secret: sab && viewerIds.includes(sab) ? { saboteurId: sab } : null,
-    hasSecret: !!sab && s.phase !== 'lobby',
-  };
+  return { ...pub, now, me: viewerId, mine: secret?.players?.[viewerId] || null };
 }

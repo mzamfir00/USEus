@@ -6,24 +6,29 @@ An IRL party game where every player uses their own phone. Spin a mission, get y
 
 ## Features
 
-- **Accounts:** sign up with a phone number (with country code) or an email, plus a PIN or password. A date of birth is required, and anyone under 16 is blocked. Phone, email and @username must each be unique.
-- **Permanent storage:** accounts, friends, rooms and mission logs are mirrored to IndexedDB and LocalStorage, plus Supabase Postgres when it's configured. Signing out never deletes anything, and the cloud schema blocks deletes outright.
-- **Four tabs:**
-  - **Play:** create a room, or join with a 4-digit code or by scanning its QR code.
-  - **Squad:** search by @username, phone or email, and add friends.
-  - **History:** past missions and Room DNA badges.
-  - **Profile:** stats, Room Aesthetic selector, sound, cloud database and sign out.
-- **Multi-phone rooms:** the host's phone runs the game. Each phone receives only its own view: its role and mission, a secret directive (on the saboteur's phone only; everyone else sees a locked indicator) and the squad's public assignments. The timer is synced across phones, and a fullscreen timer + camera overlay shows the mission watermark.
-- **Room DNA:** completed missions level a room up (1–3) toward the style of its most-played vibe:
-  - **Auteur Studio:** Supermarket and Creator pack.
-  - **Classified Dossier:** City streets.
-  - **Kinetic Brutalism:** Roadtrip.
-
-  Playing in an evolved room unlocks that style as your personal Room Aesthetic.
+- **Accounts:** sign up with a phone number (with country code) or an email, plus a PIN or password and a date of birth (16+ only). Phone, email and @username must be unique. Storage is permanent: IndexedDB + LocalStorage, mirrored to Supabase.
+- **Tabs:**
+  - **Play:** create a room, or join by code or QR.
+  - **Squad:** find and add friends.
+  - **History:** past rounds, with location and result.
+  - **Profile:** stats, Room Aesthetics, sound, cloud database and sign out.
+- **Host setup:**
+  - **Arena:** Indoor, Park, Supermarket, City Streets or Roadtrip.
+  - **Exact location:** typed, or filled in with one tap from GPS. It's stamped on the camera video and saved in the match history.
+  - **Game choice:** **Random roulette** (a synced monochrome wheel over the games that fit the arena) or **Choose game**, with an optional pick of who starts.
+- **Six interactive games**, with every phone as a controller:
+  - **Blind Sonar:** the blind hunter's phone is one giant tap target. Each pulse (12 s cooldown) counts down 3-2-1 and then makes every survivor's phone beep loudly while they film. Survivors can claim a Near miss.
+  - **Paparazzi Sniper:** each player has a private target in a circular chain. A sniper viewfinder takes stamped photos, and the squad votes on each shot: clean hit or spotted.
+  - **Blind Teleprompter:** a time-synced script on the actor's phone, mirrored on the director's camera. Saboteurs inject live stage directions.
+  - **Red Light Freeze Cam:** the watcher gets a giant toggle. On red, runners' phones play a siren and flash, then watch the motion sensor. Without a sensor, players must hold a button.
+  - **Timebomb Hot Potato:** an accelerating tick plays on the holder's phone. They do a 5-second dare, then pass the bomb to a named player. The fuse is hidden.
+  - **Undercover Saboteur:** everyone films a shared challenge. The saboteur alone gets 3 covert tasks, then every phone votes.
+- **Real video:** a canvas compositor (grayscale camera plus a REC / game / location / room stamp) records through `MediaRecorder`. Clips can be replayed, saved or shared from the results screen.
+- **Room DNA:** finished rounds level a room up toward the style of its most-played arena, and unlock that style for each player's profile.
 
 ## Cloud database (optional)
 
-1. Create a Supabase project and run [`supabase/schema.sql`](supabase/schema.sql). It creates `accounts`, `friendships`, `rooms` and `mission_logs`, along with row-level security, the login/search functions and the no-delete and 16+ triggers.
+1. Create a Supabase project and run [`supabase/schema.sql`](supabase/schema.sql). It's safe to re-run after updates: it also adds the `game` and `location` columns to `mission_logs`. It creates `accounts`, `friendships`, `rooms` and `mission_logs`, along with row-level security, the login/search functions and the no-delete and 16+ triggers.
 2. Add the repository secrets `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`. The Pages workflow passes them to the build. Alternatively, connect from **Profile → Cloud database** on a single device.
 
 With the cloud database, players can log in on any device with their phone or email + PIN, and find each other by phone or email. Without it, accounts live permanently on the device where they were created.
@@ -37,8 +42,11 @@ src/
   lib/net.js            room transport: PeerJS (WebRTC) + Supabase Realtime
   lib/sound.js          Web Audio synth
   hooks/useRoom.js      host loop (authoritative state) + client loop (reconnects)
-  game/engine.js        pure rules, Room DNA, per-phone filtered views
-  game/missions.js      16 missions (4 per vibe)
+  game/engine.js        host-authoritative rules for all six games, scoring, Room DNA, per-phone views
+  game/games.js         arenas, game definitions, scripts, dares, covert tasks, XP table
+  game/missions.js      challenges used by Undercover Saboteur
+  lib/clips.js          recorded clips (replay / save / share)
+  ui/game/*             interactive role screens, roulette wheel, camera recorder
   ui/Auth.jsx, ui/tabs/*, ui/room/*, ui/primitives.jsx
   styles/theme.css      #000 / #FFF / #141414 / #262626 design system + DNA mutations
 ```

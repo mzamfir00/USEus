@@ -53,18 +53,19 @@ export default function History({ account }) {
               <div className="min-w-0 flex-1">
                 <div className="truncate text-[16px] font-semibold">{h.mission}</div>
                 <div className="muted mt-0.5 truncate text-[13.5px]">
-                  Room {h.room} · with {h.squad.filter((n) => n !== account.name).join(', ') || 'the squad'}
+                  {h.location ? `${h.location} · ` : ''}with {h.squad.filter((n) => n !== account.name).join(', ') || 'the squad'}
                 </div>
+                {h.result && <div className="muted mt-0.5 truncate text-[12.5px]">{h.result}</div>}
               </div>
-              <div className="text-right">
-                <div className="text-[13px] font-medium">{h.outcome === 'complete' ? 'Completed' : 'Chickened'}</div>
+              <div className="shrink-0 text-right">
+                <div className="text-[13px] font-medium">{'won' in h ? (h.won ? 'Won' : 'Lost') : h.outcome === 'complete' ? 'Completed' : 'Chickened'}</div>
                 <div className="muted text-[12px]">{when(h.at)}</div>
               </div>
             </div>
           ))}
         </div>
       ) : (
-        <Empty icon={Clock} title="No missions yet" body="Missions you play show up here, along with the rooms you’ve evolved." />
+        <Empty icon={Clock} title="No missions yet" body="Rounds you play show up here, along with the rooms you’ve evolved." />
       )}
     </div>
   );

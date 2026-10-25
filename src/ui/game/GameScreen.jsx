@@ -1,0 +1,71 @@
+import React from 'react';
+import { ARENAS, GAMES } from '../../game/games';
+import HotPotato from './HotPotato';
+import { PaparazziReview, PaparazziSniper } from './Paparazzi';
+import { RedLightRunner, RedLightWatcher } from './RedLight';
+import { SonarHunter, SonarSurvivor } from './Sonar';
+import { TeleprompterActor, TeleprompterDirector, TeleprompterSaboteur } from './Teleprompter';
+import { UndercoverPlay, UndercoverVote } from './Undercover';
+import { GameShell, IntentContext } from './shared';
+
+export const roundKeyOf = (view) => `${view.code}:${view.round.n}:${view.round.spinId}`;
+
+// Picks the right interactive screen for this phone's role.
+export default function GameScreen(props) {
+  return (
+    <IntentContext.Provider value={props.intent}>
+      <RoleScreen {...props} />
+    </IntentContext.Provider>
+  );
+}
+
+function RoleScreen({ view, serverNow, intent, media, onLeave }) {
+  const r = view.round;
+  const role = r.roles[view.me];
+  const hud = {
+    title: GAMES[r.game].name,
+    location: r.location || ARENAS[r.arena].full,
+    room: view.code,
+    roundKey: roundKeyOf(view),
+    game: r.game,
+  };
+  const props = { view, serverNow, intent, media, onLeave, hud };
+
+  if (!role) {
+    return (
+      <GameShell view={view} serverNow={serverNow} roleLabel="Spectating" onLeave={onLeave}>
+        <div className="absolute inset-0 grid place-items-center px-8 text-center">
+          <div>
+            <div className="text-[26px] font-bold">Round in progress</div>
+            <div className="mt-2 text-[15px] text-white/60">You joined mid-round — you’ll be dealt in next time.</div>
+          </div>
+        </div>
+      </GameShell>
+    );
+  }
+
+  switch (r.game) {
+    case 'blind_sonar':
+      return role === 'hunter' ? <SonarHunter {...props} /> : <SonarSurvivor {...props} />;
+    case 'paparazzi':
+      return <PaparazziSniper {...props} />;
+    case 'teleprompter':
+      if (role === 'actor') return <TeleprompterActor {...props} />;
+      if (role === 'director') return <TeleprompterDirector {...props} />;
+      return <TeleprompterSaboteur {...props} />;
+    case 'red_light':
+      return role === 'watcher' ? <RedLightWatcher {...props} /> : <RedLightRunner {...props} />;
+    case 'hot_potato':
+      return <HotPotato {...props} />;
+    case 'undercover':
+      return <UndercoverPlay {...props} />;
+    default:
+      return null;
+  }
+}
+
+export function ReviewScreen({ view, intent, media }) {
+  if (view.round.game === 'paparazzi') return <PaparazziReview view={view} intent={intent} media={media} />;
+  if (view.round.game === 'undercover') return <UndercoverVote view={view} intent={intent} />;
+  return null;
+}

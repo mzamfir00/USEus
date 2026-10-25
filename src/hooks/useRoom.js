@@ -9,7 +9,8 @@ import {
   rememberVisit,
   saveRoom,
 } from '../lib/database';
-import { createRoom, missionById, reduce, viewFor } from '../game/engine';
+import { createRoom, reduce, viewFor } from '../game/engine';
+import { GAMES } from '../game/games';
 import { MAX_PLAYERS } from '../game/constants';
 
 const HEARTBEAT_MS = 3000;
@@ -36,6 +37,8 @@ export function useRoom(profile, onProfileUpdate) {
   const [view, setView] = useState(null);
   const [error, setError] = useState('');
   const [transport, setTransport] = useState(null);
+  const [media, setMedia] = useState({}); // shot id -> image data URL
+  const mediaSpin = useRef(null);
 
   const profileRef = useRef(profile);
   profileRef.current = profile;
@@ -68,11 +71,13 @@ export function useRoom(profile, onProfileUpdate) {
     if (me && res?.stats?.[me.id] && res.roundKey !== seenRef.current.roundKey) {
       seenRef.current.roundKey = res.roundKey;
       const r = v.round;
-      const mission = missionById(r.missionId);
       const entry = {
         room: v.code,
-        mission: mission?.title,
-        outcome: res.outcome,
+        mission: GAMES[r.game]?.name,
+        game: r.game,
+        location: r.location || null,
+        result: res.headline,
+        won: res.winners.includes(me.id),
         at: Date.now(),
         squad: v.players.filter((p) => r.participants.includes(p.id)).map((p) => p.name),
       };
@@ -88,25 +93,33 @@ export function useRoom(profile, onProfileUpdate) {
     const h = host.current;
     if (!h) return;
     const now = Date.now();
-    h.conns.forEach((pid, connId) => h.bus.send(connId, { t: 'state', v: viewFor(h.game, [pid], now) }));
-    setView(viewFor(h.game, [h.game.hostId], now));
+    h.conns.forEach((pid, connId) => h.bus.send(connId, { t: 'state', v: viewFor(h.game, pid, now) }));
+    setView(viewFor(h.game, h.game.hostId, now));
   }, []);
 
   const persist = useCallback((prev, next) => {
     const me = profileRef.current;
+    const h = host.current;
+    if (h && next.round?.spinId !== prev.round?.spinId) {
+      h.media.clear();
+      setMedia({});
+    }
+    const record = { hostId: me.id, dna: next.dna, scores: next.scores, settings: { ...next.settings, starter: null } };
     if (next.results && next.results.roundKey !== prev.results?.roundKey) {
       const r = next.round;
-      saveRoom(next.code, { hostId: me.id, dna: next.dna, scores: next.scores, category: next.category, packName: next.packName });
+      saveRoom(next.code, record);
       recordMission({
         room: next.code,
-        missionId: r.missionId,
-        category: r.category,
+        missionId: r.data.missionId || null,
+        game: r.game,
+        location: r.location || null,
+        category: r.arena,
         outcome: next.results.outcome,
-        saboteurWon: next.results.saboteurWon,
+        saboteurWon: !!next.results.reveal?.saboteur && next.results.winners.includes(next.results.reveal.saboteur),
         players: next.players.filter((p) => r.participants.includes(p.id)).map((p) => p.username),
       });
-    } else if (next.category !== prev.category || next.packName !== prev.packName) {
-      saveRoom(next.code, { hostId: me.id, dna: next.dna, scores: next.scores, category: next.category, packName: next.packName });
+    } else if (JSON.stringify(next.settings) !== JSON.stringify(prev.settings)) {
+      saveRoom(next.code, record);
     }
   }, []);
 
@@ -130,6 +143,26 @@ export function useRoom(profile, onProfileUpdate) {
       broadcast();
     },
     [broadcast, persist]
+  );
+
+  // Photos travel once as separate media messages instead of inside every state heartbeat.
+  const hostIntent = useCallback(
+    (actorId, action) => {
+      const h = host.current;
+      if (!h) return;
+      if (action.type === 'shot' && typeof action.img === 'string' && action.img.length < 400000) {
+        const id = String(action.id || '').slice(0, 24);
+        dispatch(actorId, { type: 'shot', id });
+        if (h.game.round?.data?.shots?.some((x) => x.id === id) && !h.media.has(id)) {
+          h.media.set(id, action.img);
+          h.conns.forEach((pid, connId) => h.bus.send(connId, { t: 'media', id, img: action.img }));
+          setMedia((m) => ({ ...m, [id]: action.img }));
+        }
+        return;
+      }
+      dispatch(actorId, action);
+    },
+    [dispatch]
   );
 
   const onHostData = useCallback(
@@ -156,18 +189,19 @@ export function useRoom(profile, onProfileUpdate) {
           player: { id: p.id, username: p.username, name: p.name },
         });
         broadcast(); // make sure the newcomer gets a view even if nothing changed
+        h.media.forEach((img, id) => h.bus.send(connId, { t: 'media', id, img }));
         return;
       }
       const pid = h.conns.get(connId);
       if (!pid) return;
       h.lastSeen.set(pid, Date.now());
-      if (msg.t === 'intent' && msg.a?.type) dispatch(pid, msg.a);
+      if (msg.t === 'intent' && msg.a?.type) hostIntent(pid, msg.a);
       if (msg.t === 'bye') {
         h.conns.delete(connId);
         dispatch(pid, { type: 'leave', id: pid });
       }
     },
-    [broadcast, dispatch]
+    [broadcast, dispatch, hostIntent]
   );
 
   const stopHost = useCallback(() => {
@@ -254,6 +288,7 @@ export function useRoom(profile, onProfileUpdate) {
           game: createRoom({ code, host: publicProfile(me), saved: mine }),
           conns: new Map(),
           lastSeen: new Map(),
+          media: new Map(),
           timers: [],
         };
         const result = await tryHost(code, session);
@@ -333,9 +368,15 @@ export function useRoom(profile, onProfileUpdate) {
           if (msg.t === 'state') {
             c.lastStateAt = Date.now();
             offsetRef.current = msg.v.now - Date.now();
+            if (msg.v.round?.spinId !== mediaSpin.current) {
+              mediaSpin.current = msg.v.round?.spinId;
+              setMedia({});
+            }
             setView(msg.v);
             setStatus('live');
             afterView(msg.v);
+          } else if (msg.t === 'media' && typeof msg.img === 'string') {
+            setMedia((m) => ({ ...m, [msg.id]: msg.img }));
           } else if (msg.t === 'denied') {
             stopClient(false);
             setStatus('error');
@@ -395,15 +436,16 @@ export function useRoom(profile, onProfileUpdate) {
     setStatus('idle');
     setRole(null);
     setView(null);
+    setMedia({});
     setError('');
   }, [stopClient, stopHost]);
 
   const intent = useCallback(
     (action) => {
-      if (host.current) dispatch(host.current.game.hostId, action);
+      if (host.current) hostIntent(host.current.game.hostId, action);
       else client.current?.bus?.send({ t: 'intent', a: action });
     },
-    [dispatch]
+    [hostIntent]
   );
 
   // Host: same bookkeeping as clients (known players, own stats once per round).
@@ -422,5 +464,5 @@ export function useRoom(profile, onProfileUpdate) {
     };
   }, [stopClient, stopHost]);
 
-  return { status, role, view, error, transport, serverNow, host: createAndHost, join, leave, intent };
+  return { status, role, view, media, error, transport, serverNow, host: createAndHost, join, leave, intent };
 }
