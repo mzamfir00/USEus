@@ -46,13 +46,16 @@ let muted = false;
 let loading = null;
 const pool = {}; // name -> { voices: Sound[], next }
 
-export async function configureAudio({ recording = false } = {}) {
+// One audio mode for the whole app: the mic meter and the camera can record while every
+// sonar pulse, siren and whisper plays through the loudspeaker (never the earpiece) at full
+// volume, without ducking for other apps.
+export async function configureAudio() {
   try {
     await Audio.setAudioModeAsync({
+      allowsRecordingIOS: true,
       playsInSilentModeIOS: true,
-      allowsRecordingIOS: recording,
-      staysActiveInBackground: false,
-      shouldDuckAndroid: true,
+      staysActiveInBackground: true,
+      shouldDuckAndroid: false,
       playThroughEarpieceAndroid: false,
     });
   } catch (e) {

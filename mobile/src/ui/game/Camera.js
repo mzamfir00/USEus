@@ -17,15 +17,17 @@
 import React, { forwardRef, useCallback, useContext, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import { AppState, Dimensions, Platform, StyleSheet, TouchableOpacity, View } from 'react-native';
 import { CameraView, useCameraPermissions, useMicrophonePermissions } from 'expo-camera';
-import { Audio } from 'expo-av';
+import * as FileSystem from 'expo-file-system';
 import * as ImageManipulator from 'expo-image-manipulator';
 import { LightSensor } from 'expo-sensors';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Flashlight, FlashlightOff, Mic, MicOff, SwitchCamera, Zap } from 'lucide-react-native';
 import { addClip } from '../../lib/clips';
 import { prompt, promptOpen } from '../../lib/permissions';
-import { stillFor, subscribeMotion } from '../../lib/motion';
-import { buzz, configureAudio, Synth } from '../../lib/sound';
+import { startMeter } from '../../lib/meter';
+import { stillFor, subscribeMotion, useMotionSensor } from '../../lib/motion';
+import { buzz, Synth } from '../../lib/sound';
+import { useLater } from '../helpers';
 import { T } from '../primitives';
 import { IntentContext, PenaltyContext, useGameTop, ZoneStrobeContext } from './context';
 
@@ -35,6 +37,11 @@ const BLOCK_MS = 8000; // covered + motionless this long → warning
 const WARN_S = 3; // warning countdown before the penalty
 const PAN_ROT = 25; // gyroscope deg/s that counts as panning the camera
 const NOISE_DB = -26; // noise snitch danger threshold (dBFS)
+// 720p at a capped bitrate keeps clips small enough to share and the phone cool over a
+// 10-minute round with the torch on. A clip rolls over into the next one at 10 minutes.
+const VIDEO_QUALITY = '720p';
+const VIDEO_BITRATE = 4000000;
+const MAX_CLIP_S = 600;
 // Android reports peak amplitude rather than RMS power: shift its readings to match.
 const METER_OFFSET = Platform.OS === 'android' ? -6 : 0;
 
@@ -122,7 +129,7 @@ const Camera = forwardRef(function Camera(
   {
     hud,
     record = false,
-    micDefault = false,
+    micDefault = true,
     flash = false,
     children,
     enforce = false,
@@ -145,6 +152,7 @@ const Camera = forwardRef(function Camera(
   },
   ref
 ) {
+  const later = useLater();
   const intentCtx = useContext(IntentContext);
   const intentRef = useRef(intentCtx);
   intentRef.current = intentCtx;
@@ -213,7 +221,7 @@ const Camera = forwardRef(function Camera(
 
   const say = (text) => {
     setNotice(text);
-    setTimeout(() => setNotice(''), 2600);
+    later(() => setNotice(''), 2600);
   };
 
   // Flipping rebuilds the capture session: end the clip first so it isn't read as a snitch.
@@ -267,20 +275,23 @@ const Camera = forwardRef(function Camera(
   const enableTorch = status === 'live' && ((lit && camFacing === 'back') || transient);
 
   // Brief light: hardware torch on the rear camera, otherwise a white screen flash.
-  const flashFor = useCallback((ms) => {
-    if (facingRef.current === 'environment' && statusRef.current === 'live') {
-      setTransient(true);
-      setTimeout(() => setTransient(false), ms);
-    } else {
-      setScreenFlash(true);
-      setTimeout(() => setScreenFlash(false), ms);
-    }
-  }, []);
+  const flashFor = useCallback(
+    (ms) => {
+      if (facingRef.current === 'environment' && statusRef.current === 'live') {
+        setTransient(true);
+        later(() => setTransient(false), ms);
+      } else {
+        setScreenFlash(true);
+        later(() => setScreenFlash(false), ms);
+      }
+    },
+    [later]
+  );
 
   const pulse = useCallback(() => {
     buzz([60, 60, 60, 60, 60]);
-    [0, 240, 480, 720].forEach((t) => setTimeout(() => flashFor(130), t));
-  }, [flashFor]);
+    [0, 240, 480, 720].forEach((t) => later(() => flashFor(130), t));
+  }, [flashFor, later]);
 
   // Zombie beacon: slow torch strobe.
   useEffect(() => {
@@ -315,6 +326,13 @@ const Camera = forwardRef(function Camera(
   }, []);
 
   const failures = useRef(0);
+  const mounted = useRef(true);
+  useEffect(
+    () => () => {
+      mounted.current = false;
+    },
+    []
+  );
   const shouldRecord = useRef(false);
   shouldRecord.current = wantVideo && (record ? !userStopped : true);
   const start = useCallback(async () => {
@@ -329,7 +347,7 @@ const Camera = forwardRef(function Camera(
     let uri = null;
     let failed = false;
     try {
-      const res = await cam.current.recordAsync();
+      const res = await cam.current.recordAsync({ maxDuration: MAX_CLIP_S });
       uri = res?.uri || null;
     } catch (e) {
       failed = true;
@@ -340,27 +358,30 @@ const Camera = forwardRef(function Camera(
     r.active = false;
     r.stopWanted = false;
     setRecording(false);
-    if (swapRef.current) return;
-    if (expected) {
-      // Stopped on purpose to flip the camera or change the mic: carry on with a new clip.
-      if (shouldRecord.current) setTimeout(() => statusRef.current === 'live' && start(), 350);
+    if (swapRef.current || !mounted.current) return;
+    const again = (ms) => later(() => statusRef.current === 'live' && start(), ms);
+    // Stopped on purpose (flip, mic change) or hit the 10-minute limit: carry straight on.
+    // (iOS reports the limit as an error, Android as a normal finish: both just roll over.)
+    const rolledOver = durationMs >= MAX_CLIP_S * 1000 - 2000;
+    if (expected || rolledOver) {
+      if (shouldRecord.current) again(rolledOver ? 0 : 350);
       return;
     }
     // A recorder that fails right as it starts (camera still settling) gets a few retries.
     if (failed && durationMs < 1500 && failures.current < 3 && (AppState.currentState === 'active' || promptOpen())) {
       failures.current += 1;
-      setTimeout(() => statusRef.current === 'live' && start(), 800);
+      again(800);
       return;
     }
     failures.current = 0;
     // Stopped by the system (camera lost, app backgrounded) rather than by us. A permission
     // prompt pauses the camera too: just start again.
     if (promptOpen()) {
-      setTimeout(() => statusRef.current === 'live' && start(), 1500);
+      again(1500);
       return;
     }
     if (enforceRef.current) setInternal((v) => v || 'stopped');
-  }, []);
+  }, [later]);
 
   useEffect(() => {
     if (!wantVideo) {
@@ -423,6 +444,7 @@ const Camera = forwardRef(function Camera(
   }, [wantsPan]);
 
   // 4. Phone covered or in a pocket and motionless (ambient light sensor, Android).
+  useMotionSensor(enforce && lensCheck && Platform.OS === 'android');
   useEffect(() => {
     if (!enforce || !lensCheck || Platform.OS !== 'android') return undefined;
     let lux = null;
@@ -531,10 +553,14 @@ const Camera = forwardRef(function Camera(
     }
   }, [violation, onResume, internal, filming, start]);
 
-  // The alarm overlay sits above the whole game shell.
+  // The alarm overlay sits above the whole game shell. It only changes with the reason; the
+  // button always calls the latest resume() through a ref.
+  const resumeRef = useRef(resume);
+  resumeRef.current = resume;
+  const stableResume = useCallback(() => resumeRef.current(), []);
   useEffect(() => {
-    setPenaltyOverlay?.(penalty ? { reason: penalty, onResume: penalty !== 'blocked' ? resume : null } : null);
-  }, [penalty, resume, setPenaltyOverlay]);
+    setPenaltyOverlay?.(penalty ? { reason: penalty, onResume: penalty !== 'blocked' ? stableResume : null, cameraOff: status === 'off' } : null);
+  }, [penalty, status, stableResume, setPenaltyOverlay]);
   useEffect(() => () => setPenaltyOverlay?.(null), [setPenaltyOverlay]);
 
   /* ------------------------------- noise meter ------------------------------ */
@@ -547,64 +573,55 @@ const Camera = forwardRef(function Camera(
       if (micPerm && !micPerm.canAskAgain) setMeterState('denied');
       return undefined;
     }
-    let rec = null;
-    let cancelled = false;
     let count = 0;
     let quietUntil = 0;
-    (async () => {
-      try {
-        await configureAudio({ recording: true });
-        rec = new Audio.Recording();
-        await rec.prepareToRecordAsync({ ...Audio.RecordingOptionsPresets.LOW_QUALITY, isMeteringEnabled: true });
-        if (cancelled) {
-          rec.stopAndUnloadAsync().catch(() => {});
+    let first = true;
+    const stopMeter = startMeter(
+      (raw) => {
+        if (first) {
+          first = false;
+          setMeterState('on');
+        }
+        const db = raw + METER_OFFSET;
+        const n = noiseRef.current;
+        setLevel(Math.max(0, Math.min(1, (db + 70) / 60)));
+        setLoud(db > n.noiseDb);
+        const now = Date.now();
+        if (now < quietUntil || penaltyRef.current) {
+          count = 0;
           return;
         }
-        rec.setProgressUpdateInterval(100);
-        rec.setOnRecordingStatusUpdate((st) => {
-          if (st.metering == null) return;
-          const db = st.metering + METER_OFFSET;
-          const n = noiseRef.current;
-          setLevel(Math.max(0, Math.min(1, (db + 70) / 60)));
-          setLoud(db > n.noiseDb);
-          const now = Date.now();
-          if (now < quietUntil || penaltyRef.current) {
-            count = 0;
-            return;
-          }
-          count = db > n.noiseDb ? count + 1 : Math.max(0, count - 1);
-          if (count >= n.noiseHold) {
-            // Sustained noise: the phone snitches with a flash and a sound cue.
-            count = 0;
-            quietUntil = now + n.noiseCooldown;
-            flashFor(n.noiseFlashMs);
-            if (n.noiseCue === 'musicbox') Synth.musicBox();
-            else Synth.chirp();
-            buzz(120);
-            onNoiseRef.current?.();
-          }
-        });
-        await rec.startAsync();
-        setMeterState('on');
-      } catch (e) {
-        console.warn('[camera] noise meter', e);
-        if (!cancelled) setMeterState('denied');
+        count = db > n.noiseDb ? count + 1 : Math.max(0, count - 1);
+        if (count >= n.noiseHold) {
+          // Sustained noise: the phone snitches with a flash and a sound cue.
+          count = 0;
+          quietUntil = now + n.noiseCooldown;
+          flashFor(n.noiseFlashMs);
+          if (n.noiseCue === 'musicbox') Synth.musicBox();
+          else Synth.chirp();
+          buzz(120);
+          onNoiseRef.current?.();
+        }
+      },
+      {
+        onError: (e) => {
+          console.warn('[camera] noise meter', e);
+          setMeterState('denied');
+        },
       }
-    })();
-    return () => {
-      cancelled = true;
-      rec?.stopAndUnloadAsync().catch(() => {});
-      configureAudio({ recording: false });
-    };
+    );
+    return stopMeter;
   }, [noiseMeter, micPerm?.granted, micPerm?.canAskAgain, flashFor]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /* -------------------------------- snapshot -------------------------------- */
+  // Only the small base64 copy travels to the room; both cache files are deleted at once.
   const shrink = async (uri) => {
     const out = await ImageManipulator.manipulateAsync(uri, [{ resize: { width: 432 } }], {
       compress: 0.55,
       format: ImageManipulator.SaveFormat.JPEG,
       base64: true,
     });
+    [uri, out.uri].forEach((u) => u && FileSystem.deleteAsync(u, { idempotent: true }).catch(() => {}));
     return out.base64 ? `data:image/jpeg;base64,${out.base64}` : null;
   };
 
@@ -618,7 +635,7 @@ const Camera = forwardRef(function Camera(
     const pending = swapRef.current;
     if (pending && modeRef.current === 'picture') {
       // Android snapshot while recording: photo mode is up, take it and switch back.
-      setTimeout(async () => {
+      later(async () => {
         let img = null;
         try {
           img = await takePhoto();
@@ -648,7 +665,7 @@ const Camera = forwardRef(function Camera(
           stop();
           setStatus('loading');
           setSwapping(true);
-          setTimeout(() => {
+          later(() => {
             if (swapRef.current?.resolve === resolve) {
               swapRef.current = null;
               setSwapping(false);
@@ -682,7 +699,8 @@ const Camera = forwardRef(function Camera(
           mode={mode}
           mute={muted}
           enableTorch={enableTorch}
-          videoQuality="720p"
+          videoQuality={VIDEO_QUALITY}
+          videoBitrate={VIDEO_BITRATE}
           mirror={camFacing === 'front'}
           animateShutter={false}
           onCameraReady={onReady}

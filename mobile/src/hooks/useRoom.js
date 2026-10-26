@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { AppState } from 'react-native';
 import { openClient, openHost } from '../lib/net';
+import { isOnline, onNetworkChange } from '../lib/network';
 import {
   applyRoundStats,
   isBlocked,
@@ -15,6 +17,16 @@ import { GAMES, MAX_PLAYERS, createRoom, reduce, viewFor } from '../core';
 const HEARTBEAT_MS = 3000;
 const PEER_TIMEOUT_MS = 15000;
 const HOST_SILENCE_MS = 11000;
+const ROOM_GONE_MS = 60000; // a reachable network and no host this long = the room is gone
+const RETRY_MS = 2500;
+
+// Player profiles arrive from other phones: keep them to plain, short strings.
+const cleanPlayer = (p) => ({
+  id: String(p.id).slice(0, 64),
+  username: String(p.username).slice(0, 32),
+  name: String(p.name || p.username).slice(0, 40),
+});
+const validView = (v) => !!v && Array.isArray(v.players) && typeof v.code === 'string' && !!v.dna;
 
 const randomCode = () => String(1000 + Math.floor(Math.random() * 9000));
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -57,6 +69,7 @@ export function useRoom(profile, onProfileUpdate) {
   const seenRef = useRef({ players: '', roundKey: null, dna: '' });
   const afterView = useCallback((v) => {
     const me = profileRef.current;
+    if (!validView(v)) return;
     const sig = v.players.map((p) => p.id).join(',');
     if (sig !== seenRef.current.players) {
       seenRef.current.players = sig;
@@ -93,7 +106,13 @@ export function useRoom(profile, onProfileUpdate) {
     const h = host.current;
     if (!h) return;
     const now = Date.now();
-    h.conns.forEach((pid, connId) => h.bus.send(connId, { t: 'state', v: viewFor(h.game, pid, now) }));
+    h.conns.forEach((pid, connId) => {
+      try {
+        h.bus.send(connId, { t: 'state', v: viewFor(h.game, pid, now) });
+      } catch (e) {
+        console.warn('[room] view for player failed', e);
+      }
+    });
     setView(viewFor(h.game, h.game.hostId, now));
   }, []);
 
@@ -128,7 +147,7 @@ export function useRoom(profile, onProfileUpdate) {
   const dispatch = useCallback(
     (actorId, action) => {
       const h = host.current;
-      if (!h) return;
+      if (!h || !action || typeof action.type !== 'string') return;
       if (action.type === 'remove') {
         h.conns.forEach((pid, connId) => {
           if (pid === action.id) {
@@ -137,8 +156,15 @@ export function useRoom(profile, onProfileUpdate) {
           }
         });
       }
-      const next = reduce(h.game, actorId, action);
-      if (next === h.game) return;
+      // One malformed intent (another app version, a bad packet) must never take the room down.
+      let next;
+      try {
+        next = reduce(h.game, actorId, action);
+      } catch (e) {
+        console.warn('[room] rejected intent', action.type, e);
+        return;
+      }
+      if (!next || next === h.game) return;
       const prev = h.game;
       // Host-only bookkeeping (GPS fixes nobody else can see) skips the broadcast;
       // the 3 s heartbeat still carries it.
@@ -180,7 +206,7 @@ export function useRoom(profile, onProfileUpdate) {
       const h = host.current;
       if (!h || !msg) return;
       if (msg.t === 'hello' && msg.player?.id && msg.player?.username) {
-        const p = msg.player;
+        const p = cleanPlayer(msg.player);
         if (p.id === profileRef.current.id) {
           h.bus.send(connId, { t: 'denied', reason: 'same-account' });
           return;
@@ -210,7 +236,7 @@ export function useRoom(profile, onProfileUpdate) {
       const pid = h.conns.get(connId);
       if (!pid) return;
       h.lastSeen.set(pid, Date.now());
-      if (msg.t === 'intent' && msg.a?.type) hostIntent(pid, msg.a);
+      if (msg.t === 'intent' && typeof msg.a?.type === 'string') hostIntent(pid, msg.a);
       if (msg.t === 'bye') {
         h.conns.delete(connId);
         dispatch(pid, { type: 'leave', id: pid });
@@ -223,9 +249,37 @@ export function useRoom(profile, onProfileUpdate) {
     const h = host.current;
     if (!h) return;
     h.timers.forEach(clearInterval);
-    h.bus?.close();
+    clearTimeout(h.rebindTimer);
+    // Tell connected phones the room is closing so they don't wait to reconnect.
+    h.conns.forEach((pid, connId) => h.bus?.send(connId, { t: 'closed' }));
+    const bus = h.bus;
+    setTimeout(() => bus?.close(), h.conns.size ? 300 : 0);
     host.current = null;
   }, []);
+
+  // New network (Wi-Fi → 4G/5G) or back from the background: rebuild the host's channels.
+  // Phones keep their connection ids, so play continues as soon as their next message lands.
+  const rebindRef = useRef(null);
+  const rebindHost = useCallback(() => {
+    const h = host.current;
+    if (!h?.handlers) return;
+    clearTimeout(h.rebindTimer);
+    try {
+      h.bus?.close();
+    } catch (e) {
+      /* already closed */
+    }
+    h.bus = openHost(h.code, {
+      ...h.handlers,
+      // Still no network (or the server is unreachable): try again shortly.
+      onError: (reason) => {
+        if (host.current !== h) return;
+        console.warn('[room] host channels not back yet', reason);
+        h.rebindTimer = setTimeout(() => rebindRef.current?.(), 3000);
+      },
+    });
+  }, []);
+  rebindRef.current = rebindHost;
 
   const tryHost = useCallback(
     (code, session) =>
@@ -258,6 +312,8 @@ export function useRoom(profile, onProfileUpdate) {
             if (pid && ![...h.conns.values()].includes(pid)) dispatch(pid, { type: 'disconnect', id: pid });
           },
         };
+        attempt.code = code;
+        attempt.handlers = handlers;
         attempt.bus = openHost(code, handlers);
         setTimeout(() => settle('error'), 15000);
       }),
@@ -344,19 +400,23 @@ export function useRoom(profile, onProfileUpdate) {
   }, []);
 
   const connectClient = useCallback(
-    async (code, session, isRetry) => {
+    async (code, session, isRetry, retrySince = null) => {
       const me = profileRef.current;
-      const c = { bus: null, code, lastStateAt: Date.now(), timers: [], closing: false, opened: false };
+      const c = { bus: null, code, lastStateAt: Date.now(), timers: [], closing: false, opened: false, synced: false };
       client.current = c;
 
-      const reconnect = () => {
+      // Keeps trying (same player id, so the host restores the role, score and timer) until
+      // the host answers again. Only a reachable network with no host for a minute ends it.
+      const reconnect = (delay = RETRY_MS) => {
         if (c.closing || sessionRef.current !== session) return;
         c.closing = true;
         c.timers.forEach(clearInterval);
         c.bus?.close();
         setStatus('reconnecting');
-        setTimeout(() => sessionRef.current === session && connectClient(code, session, true), 2500);
+        const since = c.synced ? Date.now() : retrySince || Date.now();
+        setTimeout(() => sessionRef.current === session && connectClient(code, session, true, since), delay);
       };
+      c.reconnect = reconnect;
 
       const bus = await openClient(code, {
         onOpen: (kind) => {
@@ -367,6 +427,8 @@ export function useRoom(profile, onProfileUpdate) {
         onData: (msg) => {
           if (c.closing || sessionRef.current !== session || !msg) return;
           if (msg.t === 'state') {
+            if (!validView(msg.v)) return;
+            c.synced = true;
             c.lastStateAt = Date.now();
             offsetRef.current = msg.v.now - Date.now();
             if (msg.v.round?.spinId !== mediaSpin.current) {
@@ -376,7 +438,7 @@ export function useRoom(profile, onProfileUpdate) {
             setView(msg.v);
             setStatus('live');
             afterView(msg.v);
-          } else if (msg.t === 'media' && typeof msg.img === 'string') {
+          } else if (msg.t === 'media' && typeof msg.id === 'string' && typeof msg.img === 'string' && msg.img.length < 400000) {
             setMedia((m) => ({ ...m, [msg.id]: msg.img }));
           } else if (msg.t === 'denied') {
             stopClient(false);
@@ -385,16 +447,19 @@ export function useRoom(profile, onProfileUpdate) {
           } else if (msg.t === 'kicked') {
             stopClient(false);
             setStatus('kicked');
+          } else if (msg.t === 'closed') {
+            stopClient(false);
+            setStatus('ended');
           }
         },
-        onClose: reconnect,
+        onClose: () => reconnect(),
         onError: (reason) => {
           if (sessionRef.current !== session || c.closing) return;
           if (!c.opened && !isRetry) {
             stopClient(false);
             setStatus('error');
             setError(errorText(reason));
-          } else if (!c.opened && reason === 'no-room') {
+          } else if (!c.opened && reason === 'no-room' && isOnline() && Date.now() - (retrySince || Date.now()) > ROOM_GONE_MS) {
             stopClient(false);
             setStatus('ended');
           } else reconnect();
@@ -449,6 +514,31 @@ export function useRoom(profile, onProfileUpdate) {
     [hostIntent]
   );
 
+  // Force a fresh sync: clients rebuild their channels, hosts rebuild theirs and re-send.
+  const resync = useCallback(() => {
+    if (host.current) {
+      rebindHost();
+      broadcast();
+    } else client.current?.reconnect?.(0);
+  }, [broadcast, rebindHost]);
+
+  useEffect(() => {
+    const offNet = onNetworkChange(() => resync());
+    let hiddenAt = 0;
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'background') hiddenAt = Date.now();
+      else if (state === 'active' && hiddenAt && Date.now() - hiddenAt > 5000) {
+        // The OS may have dropped our sockets while we were away.
+        if (host.current) resync();
+        else if (client.current && Date.now() - client.current.lastStateAt > HEARTBEAT_MS + 1000) resync();
+      }
+    });
+    return () => {
+      offNet();
+      sub.remove();
+    };
+  }, [resync]);
+
   // Host: same bookkeeping as clients (known players, own stats once per round).
   useEffect(() => {
     if (role === 'host' && view) afterView(view);
@@ -463,5 +553,5 @@ export function useRoom(profile, onProfileUpdate) {
     [stopClient, stopHost]
   );
 
-  return { status, role, view, media, error, transport, serverNow, host: createAndHost, join, leave, intent };
+  return { status, role, view, media, error, transport, serverNow, host: createAndHost, join, leave, intent, resync };
 }

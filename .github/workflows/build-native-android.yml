@@ -1,8 +1,9 @@
 name: Build native Android (APK + AAB)
 
 # React Native / Expo SDK 52 app in mobile/: checks the JS bundle, generates the native
-# project with `expo prebuild`, builds a signed release APK + Play App Bundle, uploads both
-# as artifacts and publishes the APK on a GitHub Release.
+# project with `expo prebuild`, builds a signed release APK + Play App Bundle and uploads both
+# as artifacts. The APK is then installed and launched on an Android emulator; only if it
+# starts and renders its first screens is it published on a GitHub Release.
 
 on:
   push:
@@ -138,6 +139,44 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+  launch-test:
+    needs: android
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download the APK
+        uses: actions/download-artifact@v4
+        with:
+          name: USEus-release-apk
+          path: apk
+
+      - name: Enable KVM (hardware-accelerated emulator)
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Install and launch on an Android 14 emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          arch: x86_64
+          target: google_apis
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back emulated -camera-front emulated
+          script: bash .github/scripts/android-launch-test.sh apk/USEus-release.apk
+
+      - name: Upload launch-test screenshots and logcat
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: USEus-launch-test
+          path: launch-test
+          if-no-files-found: ignore
+          retention-days: 14
+
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
@@ -145,7 +184,7 @@ jobs:
           name: USEus Android 1.0.${{ github.run_number }}
           target_commitish: ${{ github.sha }}
           make_latest: true
-          files: mobile/out/USEus-release.apk
+          files: apk/USEus-release.apk
           body: |
             Native Android build of USEus (React Native / Expo SDK 52) from ${{ github.sha }}.
 

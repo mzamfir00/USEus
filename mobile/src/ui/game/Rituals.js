@@ -7,7 +7,7 @@ import { RITUAL, blackoutAt, dopAlive, nextBlackout, statueCycle } from '../../c
 import { buzz, haptic, speak, Synth } from '../../lib/sound';
 import { useTheme } from '../../theme';
 import { Button, Card, Divided, Pill, Sheet, T } from '../primitives';
-import { formatTime, useNow } from '../helpers';
+import { formatTime, useLater, useNow } from '../helpers';
 import Camera from './Camera';
 import { useGameTop } from './context';
 import HorrorFx, { Breathe, HorrorTitle, Tremble, Vhs } from './HorrorFx';
@@ -446,6 +446,7 @@ export function StatueWatcher({ view, serverNow, intent, onLeave, hud }) {
   const r = view.round;
   const d = r.data;
   const tagged = !!d.tagged[view.me];
+  const later = useLater();
   const c = useStatueClock(r, serverNow, () => {
     Synth.clunk();
     haptic.tick();
@@ -455,7 +456,7 @@ export function StatueWatcher({ view, serverNow, intent, onLeave, hud }) {
     if (!n) return;
     Synth.alert();
     setMoved(true);
-    setTimeout(() => setMoved(false), 3000);
+    later(() => setMoved(false), 3000);
   });
   return (
     <GameShell view={view} serverNow={serverNow} roleLabel={tagged ? 'Tagged by the Statue' : `Survivor · ${c.lit ? 'light' : 'blackout'}`} onLeave={onLeave}>
@@ -788,6 +789,7 @@ export function Doppelganger({ view, serverNow, intent, onLeave, hud }) {
   const [secretOpen, setSecretOpen] = useState(true);
   const [toast, setToast] = useState(null);
   const claimedNow = b && d.claimedIn[b.k];
+  const later = useLater();
 
   useOnChange(!!b, (dark) => {
     if (dark) {
@@ -804,7 +806,7 @@ export function Doppelganger({ view, serverNow, intent, onLeave, hud }) {
     if (fresh.length) {
       setToast(`@${fresh.map((id) => userOf(view, id)).join(', @')} was taken in the dark`);
       buzz([200, 100, 200]);
-      setTimeout(() => setToast(null), 5000);
+      later(() => setToast(null), 5000);
     }
   });
   const banishedIds = Object.keys(d.banished).join(',');
@@ -812,7 +814,7 @@ export function Doppelganger({ view, serverNow, intent, onLeave, hud }) {
     const fresh = v.split(',').filter((id) => id && !prev.split(',').includes(id));
     if (fresh.length && !fresh.includes(me)) {
       setToast(`@${userOf(view, fresh[0])} was voted out — and was innocent`);
-      setTimeout(() => setToast(null), 5000);
+      later(() => setToast(null), 5000);
     }
   });
 

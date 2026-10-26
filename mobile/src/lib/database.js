@@ -58,9 +58,12 @@ export const isCloud = () => !!cloudConfig();
 
 // USEus accounts are its own (phone/email + PIN hash), so the Supabase auth session is
 // unused; it still persists in AsyncStorage rather than in memory.
+// A short heartbeat notices a dead socket (network switch) quickly; rooms also rebuild their
+// channels on NetInfo changes.
 const makeClient = (url, key) =>
   createClient(url, key, {
     auth: { storage: AsyncStorage, persistSession: true, autoRefreshToken: true, detectSessionInUrl: false },
+    realtime: { heartbeatIntervalMs: 15000 },
   });
 
 let client = null;

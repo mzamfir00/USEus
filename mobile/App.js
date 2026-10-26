@@ -18,6 +18,8 @@ import { LegalSheet } from './src/ui/Legal';
 import SafetyGate, { acceptSafety, safetyAccepted } from './src/ui/Safety';
 import { BgFx } from './src/ui/primitives';
 import Room from './src/ui/room/Room';
+import ErrorBoundary from './src/ui/ErrorBoundary';
+import { purgeCameraCache } from './src/lib/clips';
 import History from './src/ui/tabs/History';
 import Play from './src/ui/tabs/Play';
 import Profile from './src/ui/tabs/Profile';
@@ -129,7 +131,11 @@ function Main() {
       />
     );
   } else if (inRoom) {
-    body = <Room room={room} code={roomCode} onLeave={leave} />;
+    body = (
+      <ErrorBoundary global onRecover={room.resync} onLeave={leave}>
+        <Room room={room} code={roomCode} onLeave={leave} />
+      </ErrorBoundary>
+    );
   } else {
     body = (
       <NavigationContainer theme={navTheme}>
@@ -208,6 +214,7 @@ export default function App() {
   // Restore the saved login and history before the first screen, then finish any account
   // deletion that couldn't reach the cloud last time.
   useEffect(() => {
+    purgeCameraCache(); // temporary clips and photos from earlier sessions
     hydrate().finally(() => {
       setHydrated(true);
       retryPendingDeletions();
@@ -222,7 +229,9 @@ export default function App() {
   if (!ready) return null;
   return (
     <SafeAreaProvider style={{ backgroundColor: '#000' }}>
-      <Main />
+      <ErrorBoundary global title="USEus needs a restart" label="Restart USEus">
+        <Main />
+      </ErrorBoundary>
     </SafeAreaProvider>
   );
 }

@@ -94,7 +94,11 @@ The Android and iOS apps are a true native React Native app in [`mobile/`](mobil
 - **Native differences:**
   - Video is recorded in colour, and the REC / location stamp is an on-screen overlay rather than burned into the clip.
   - Android detects a covered phone with the ambient light sensor plus stillness; iOS has no light-sensor API, so it relies on the other Snitch checks.
-  - Clips are recorded without sound while the noise snitch is listening, because the meter needs the microphone.
+  - Clips record with sound (720p at about 4 Mbps; a new clip starts every 10 minutes). The exception is while the noise snitch is listening, because the meter needs the microphone.
+  - Rooms survive network changes. Moving from Wi-Fi to 4G/5G (or coming back from the background) rebuilds the realtime channels, and the host restores your role, score and timer.
+  - During a room, Android's back button or swipe-back asks "Abandon current round?" instead of leaving.
+  - Temporary clips and photos from earlier rounds are deleted from the cache when a new round starts and when the app opens.
+  - If a screen fails, an error screen offers "Reconnect / Recover round" instead of crashing.
   - On Android, a proof photo taken during recording (Floor Is Lava) briefly splits the clip. TOMARE skips the selfie there rather than delay the freeze.
 - **Permissions:** Android asks for CAMERA, RECORD_AUDIO, location, VIBRATE and WAKE_LOCK, and blocks the READ_MEDIA_* permissions (saving to the gallery doesn't need them). On iOS, `app.json` carries the camera, microphone, location, motion and photo-library-add usage strings, plus `ITSAppUsesNonExemptEncryption = false`.
 - **Icons:** `mobile/assets/source/icon.svg` is the source for the app icon, adaptive icon, splash screen and the web icons in `public/`.
@@ -109,7 +113,9 @@ npx expo run:ios       # macOS + Xcode
 
 **Android CI:** `.github/workflows/build-native-android.yml` runs on every push to `main`, or manually from the Actions tab.
 - Steps: Node 20, JDK 17 (Temurin) and the Android SDK, then `npm install`, lint and an Android bundle check, `npx expo prebuild --platform android --clean`, and `./gradlew assembleRelease bundleRelease`.
-- Outputs: the **USEus-release-apk** and **USEus-release-aab** artifacts. The APK is also published on a GitHub Release, and the newest one is always at `https://github.com/mzamfir00/USEus/releases/latest/download/USEus-release.apk`.
+- Outputs: the **USEus-release-apk** and **USEus-release-aab** artifacts.
+- Launch test: the APK is installed on an Android 14 emulator. The test checks that it starts without crashing, shows the safety warning, reaches the sign-up screen and opens the Privacy Policy. Screenshots and logcat are kept as the **USEus-launch-test** artifact.
+- Release: only after the launch test passes is the APK published on a GitHub Release. The newest one is always at `https://github.com/mzamfir00/USEus/releases/latest/download/USEus-release.apk`.
 - Version: `1.0.<run number>`, and the versionCode follows the run number.
 - **Signing:** add the repository secrets `ANDROID_KEYSTORE_BASE64` (`base64 -w0 your.keystore`), `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS` and `ANDROID_KEY_PASSWORD` to sign every build with your key, which Google Play requires. Without them, each run signs with a fresh key generated just for that build. The key is never stored or uploaded, so to update an installed copy you have to uninstall it first.
 

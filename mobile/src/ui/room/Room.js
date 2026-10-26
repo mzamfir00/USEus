@@ -11,10 +11,9 @@ import { buzz, haptic, Synth } from '../../lib/sound';
 import { useTheme } from '../../theme';
 import GameScreen, { ReviewScreen } from '../game/GameScreen';
 import Intro from '../game/Intro';
-import { confirm } from '../game/shared';
 import { useNow } from '../helpers';
 import { useBlocked } from '../Moderation';
-import { Button, Card, Divided, Eyebrow, Hazard, IconButton, LevelDots, Sheet, T, Title } from '../primitives';
+import { Button, Card, ConfirmModal, Divided, Eyebrow, Hazard, IconButton, LevelDots, Sheet, T, Title } from '../primitives';
 import Lobby from './Lobby';
 import Results from './Results';
 
@@ -163,7 +162,11 @@ export default function Room({ room, code, onLeave }) {
   }, [rawView, blocked]);
   const [sheet, setSheet] = useState(null); // invite | dna
   const [evolved, setEvolved] = useState(null);
-  useNow(view?.phase === 'round' ? 250 : 5000);
+  const [leaving, setLeaving] = useState(false); // "Abandon current round?" dialog
+  // Ticks fast only while waiting for the countdown to hand over to the game screen; the game
+  // screens keep their own clocks.
+  const handingOver = view?.phase === 'round' && !(view.round.stage !== 'brief' && serverNow() >= view.round.startsAt);
+  useNow(handingOver ? 250 : 5000);
   const lastDna = useRef(null);
   const info = dnaInfo(view?.dna);
   useTimerAlerts(view, serverNow);
@@ -178,10 +181,9 @@ export default function Room({ room, code, onLeave }) {
   const live = view && (status === 'live' || status === 'reconnecting');
   const roomCode = view?.code || code;
   const isHost = role === 'host';
-  const askLeave = () =>
-    live ? confirm(isHost ? 'Close the room?' : 'Leave this room?', isHost ? 'Leaving closes the room for everyone.' : 'You can rejoin with the room code.', onLeave) : onLeave();
+  const askLeave = () => (live ? setLeaving(true) : onLeave());
 
-  // Android back: leave (with confirmation) instead of closing the app mid-room.
+  // Android back / swipe-back never drops you out of a room by accident: it asks first.
   const leaveRef = useRef(askLeave);
   leaveRef.current = askLeave;
   useEffect(() => {
@@ -192,9 +194,37 @@ export default function Room({ room, code, onLeave }) {
     return () => sub.remove();
   }, []);
 
-  const inGame = live && view.phase === 'round' && view.round.stage !== 'brief' && serverNow() >= view.round.startsAt;
+  const inRound = live && view.phase === 'round';
+  const leaveDialog = (
+    <ConfirmModal
+      visible={leaving}
+      testID="leave-confirm"
+      title={inRound ? 'Abandon current round?' : isHost ? 'Close the room?' : 'Leave this room?'}
+      body={
+        isHost
+          ? 'You’re hosting: leaving ends the round and closes the room for everyone.'
+          : inRound
+            ? 'You’ll drop out of this round. You can rejoin with the room code.'
+            : 'You can rejoin with the room code.'
+      }
+      confirmLabel={inRound ? 'Abandon round' : 'Leave room'}
+      cancelLabel={inRound ? 'Keep playing' : 'Stay'}
+      onCancel={() => setLeaving(false)}
+      onConfirm={() => {
+        setLeaving(false);
+        onLeave();
+      }}
+    />
+  );
+
+  const inGame = inRound && view.round.stage !== 'brief' && serverNow() >= view.round.startsAt;
   if (inGame) {
-    return <GameScreen key={view.round.spinId} view={view} serverNow={serverNow} intent={intent} media={media} onLeave={onLeave} />;
+    return (
+      <>
+        <GameScreen key={view.round.spinId} view={view} serverNow={serverNow} intent={intent} media={media} onLeave={onLeave} />
+        {leaveDialog}
+      </>
+    );
   }
 
   return (
@@ -243,6 +273,7 @@ export default function Room({ room, code, onLeave }) {
       {sheet === 'invite' && roomCode && <InviteSheet code={roomCode} onClose={() => setSheet(null)} />}
       {sheet === 'dna' && <DnaSheet info={info} onClose={() => setSheet(null)} />}
       {evolved && <Evolution info={evolved} onDone={() => setEvolved(null)} />}
+      {leaveDialog}
     </SafeAreaView>
   );
 }

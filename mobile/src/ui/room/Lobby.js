@@ -166,7 +166,8 @@ export default function Lobby({ view, intent, onInvite }) {
   const seasonal = halloweenLive();
   const pack = st.pack === 'halloween' && seasonal ? 'halloween' : 'party';
   const fits = gamesFor(st.arena, online.length, pack);
-  const chosen = GAMES[st.game];
+  // A room saved by another app version may name a game this build doesn't know.
+  const chosen = GAMES[st.game] || Object.values(GAMES).find((g) => packOf(g) === pack) || Object.values(GAMES)[0];
   const packGames = Object.values(GAMES).filter((g) => packOf(g) === pack);
   const set = (patch) => intent({ type: 'settings', ...patch });
   const choosePack = (id) => {

@@ -7,12 +7,14 @@ import { MAX_SHOTS, XP } from '../../core';
 import { buzz, Synth } from '../../lib/sound';
 import { useTheme } from '../../theme';
 import { Button, Card, Eyebrow, LiveDot, T, Title } from '../primitives';
+import { useLater } from '../helpers';
 import Camera from './Camera';
 import Photo from './Photo';
 import { BottomBar, FlashLayer, GameShell, TopCard, nameOf, userOf } from './shared';
 
 export function PaparazziSniper({ view, serverNow, intent, onLeave, hud, media }) {
   const cam = useRef(null);
+  const later = useLater();
   const [flash, setFlash] = useState(false);
   const [busy, setBusy] = useState(false);
   const target = view.mine?.target;
@@ -26,8 +28,8 @@ export function PaparazziSniper({ view, serverNow, intent, onLeave, hud, media }
     Synth.shutter();
     buzz(40);
     setFlash(true);
-    setTimeout(() => setFlash(false), 180);
-    const img = await cam.current.snapshot();
+    later(() => setFlash(false), 180);
+    const img = await cam.current?.snapshot();
     setBusy(false);
     intent({ type: 'shot', id: Math.random().toString(36).slice(2, 12), ...(img ? { img } : {}) });
   };

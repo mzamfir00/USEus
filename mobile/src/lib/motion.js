@@ -2,7 +2,7 @@
 // (expo-location). One listener for the whole app: the Snitch Protocol (is the phone
 // still?), Red Light (did it move on red?), Floor Is Lava (is the camera pointing down?),
 // Statue / Peek checks and the GPS Playzone compass all read from here.
-import { useSyncExternalStore } from 'react';
+import { useEffect, useSyncExternalStore } from 'react';
 import { DeviceMotion } from 'expo-sensors';
 import * as Location from 'expo-location';
 
@@ -14,6 +14,7 @@ let lastSampleAt = 0;
 let orientation = null; // { beta, gamma, at } degrees
 let heading = null; // { deg, at } compass heading, 0 = north, clockwise
 let motionSub = null;
+let consumers = 0; // the sensor only runs while some screen needs it (battery)
 let headingSub = null;
 let headingStarting = false;
 const listeners = new Set(); // raw motion subscribers
@@ -36,9 +37,34 @@ function onMotion(m) {
 }
 
 function start() {
-  if (motionSub || mode !== 'sensor') return;
+  if (motionSub || mode !== 'sensor' || consumers === 0) return;
   DeviceMotion.setUpdateInterval(60);
   motionSub = DeviceMotion.addListener(onMotion);
+}
+
+function stop() {
+  motionSub?.remove();
+  motionSub = null;
+  lastSampleAt = 0;
+  orientation = null;
+}
+
+// Keeps the motion sensor running until the returned release() is called.
+export function retainMotion() {
+  consumers += 1;
+  start();
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    consumers = Math.max(0, consumers - 1);
+    if (consumers === 0) stop();
+  };
+}
+
+// Component form of retainMotion (Floor Is Lava's camera-down check, the pocket check).
+export function useMotionSensor(active = true) {
+  useEffect(() => (active ? retainMotion() : undefined), [active]);
 }
 
 // Checks (and if needed asks for) the motion permission. Safe to call any time.
@@ -112,7 +138,11 @@ export const cameraPointingDown = () => {
 
 export function subscribeMotion(fn) {
   listeners.add(fn);
-  return () => listeners.delete(fn);
+  const release = retainMotion();
+  return () => {
+    listeners.delete(fn);
+    release();
+  };
 }
 
 export function useMotionMode() {

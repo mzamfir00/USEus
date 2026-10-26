@@ -5,7 +5,7 @@ import { Volume2 } from 'lucide-react-native';
 import { GAMES, SONAR_BEEP_MS, SONAR_COOLDOWN, XP } from '../../core';
 import { buzz, haptic, Synth } from '../../lib/sound';
 import { Button, T } from '../primitives';
-import { useNow } from '../helpers';
+import { useLater, useNow } from '../helpers';
 import Camera from './Camera';
 import { BottomBar, GameShell, PickPlayer, TopCard, nameOf } from './shared';
 
@@ -88,6 +88,7 @@ export function SonarHunter({ view, serverNow, intent, onLeave }) {
 
 export function SonarSurvivor({ view, serverNow, intent, onLeave, hud }) {
   useNow(150);
+  const later = useLater();
   const d = view.round.data;
   const me = view.me;
   const now = serverNow();
@@ -107,10 +108,10 @@ export function SonarSurvivor({ view, serverNow, intent, onLeave, hud }) {
       Synth.sonar();
       haptic.sonar();
       setBeeping(true);
-      setTimeout(() => setBeeping(false), SONAR_BEEP_MS);
+      later(() => setBeeping(false), SONAR_BEEP_MS);
     }, Math.max(0, wait));
     return () => clearTimeout(timer);
-  }, [d.pulses, d.pulseAt, serverNow]);
+  }, [d.pulses, d.pulseAt, serverNow, later]);
 
   const used = d.nearMiss[me] || 0;
   const coolingNear = now - (d.nearMissAt[me] || 0) < 8000;

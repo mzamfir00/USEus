@@ -12,7 +12,7 @@ import { roundKeyOf } from '../game/GameScreen';
 import Photo from '../game/Photo';
 import { nameOf } from '../game/shared';
 import TacticalMap from '../game/zone/TacticalMap';
-import { formatTime } from '../helpers';
+import { formatTime, useLater } from '../helpers';
 import { Avatar, Button, Card, Divided, Eyebrow, LiveDot, SectionLabel, T, Title } from '../primitives';
 
 const initials = (name) =>
@@ -322,6 +322,7 @@ function ZoneSummary({ view }) {
 
 function Clips({ roundKey }) {
   const clips = useClips(roundKey);
+  const later = useLater();
   const [note, setNote] = useState('');
   if (!clips.length) return null;
   return (
@@ -353,7 +354,7 @@ function Clips({ roundKey }) {
                       const where = await downloadClip(c);
                       if (where) {
                         setNote(where);
-                        setTimeout(() => setNote(''), 3500);
+                        later(() => setNote(''), 3500);
                       }
                     }}
                   />
@@ -403,7 +404,7 @@ export default function Results({ view, intent, media }) {
       <ScrollView contentContainerStyle={{ paddingHorizontal: 24, paddingBottom: 170 }}>
         <View style={{ paddingTop: 24 }}>
           <Eyebrow>
-            {GAMES[res.game].name} · {res.location || ARENAS[r.arena].full}
+            {GAMES[res.game]?.name || 'Round'} · {res.location || ARENAS[r.arena]?.full || ''}
           </Eyebrow>
           <Title style={{ marginTop: 8 }} testID="headline">
             {res.headline}
@@ -462,7 +463,7 @@ export default function Results({ view, intent, media }) {
       <LinearGradient colors={['transparent', t.c.bg, t.c.bg]} locations={[0, 0.35, 1]} style={{ position: 'absolute', left: 0, right: 0, bottom: 0, paddingTop: 40, paddingHorizontal: 24, paddingBottom: 16 + insets.bottom }}>
         {isHost ? (
           <>
-            <Button title={view.settings.mode === 'random' ? 'Spin again' : `Play ${GAMES[view.settings.game].name} again`} onPress={() => intent({ type: 'start' })} testID="play-again" />
+            <Button title={view.settings.mode === 'random' ? 'Spin again' : `Play ${GAMES[view.settings.game]?.name || 'it'} again`} onPress={() => intent({ type: 'start' })} testID="play-again" />
             <Button variant="ghost" title="Change arena or game" color={t.c.muted} onPress={() => intent({ type: 'lobby' })} style={{ marginTop: 4, minHeight: 44 }} testID="to-lobby" />
           </>
         ) : (

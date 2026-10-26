@@ -769,3 +769,26 @@ export function BgFx() {
     </View>
   );
 }
+
+// Monochrome yes / no dialog (Android back during a round, leaving a room).
+export function ConfirmModal({ visible, title, body, confirmLabel, cancelLabel = 'Cancel', onConfirm, onCancel, testID }) {
+  if (!visible) return null;
+  return (
+    <Modal visible transparent animationType="fade" statusBarTranslucent onRequestClose={onCancel}>
+      <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.85)', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 24 }} testID={testID} accessibilityRole="alert">
+        <View style={{ width: '100%', maxWidth: 380, borderRadius: 28, borderWidth: 1, borderColor: '#fff', backgroundColor: '#000', padding: 24 }}>
+          <T size={22} w={700} ls={-0.4} color="#fff" center>
+            {title}
+          </T>
+          {body ? (
+            <T size={14.5} lh={1.4} color="rgba(255,255,255,0.7)" center style={{ marginTop: 10 }}>
+              {body}
+            </T>
+          ) : null}
+          <Button title={confirmLabel} bg="#fff" color="#000" onPress={onConfirm} style={{ marginTop: 24 }} testID="confirm-yes" />
+          <Button variant="ghost" title={cancelLabel} color="#fff" onPress={onCancel} style={{ marginTop: 4 }} testID="confirm-no" />
+        </View>
+      </View>
+    </Modal>
+  );
+}

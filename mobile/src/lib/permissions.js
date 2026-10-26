@@ -21,17 +21,14 @@ export async function prompt(request) {
   }
 }
 
-// Games whose filming roles use the microphone (noise snitch or recorded dialogue).
-const MIC_GAMES = new Set(['hide_seek', 'sardines', 'dead_silence', 'teleprompter', 'undercover']);
-
-export async function prepareRound({ game, films, zone }) {
+// Filming roles record clips with sound (and stealth games run the noise snitch), so they
+// need the camera and the microphone.
+export async function prepareRound({ films, zone }) {
   if (films) {
     const cam = await Camera.getCameraPermissionsAsync();
     if (!cam.granted && cam.canAskAgain) await prompt(Camera.requestCameraPermissionsAsync);
-    if (MIC_GAMES.has(game)) {
-      const mic = await Camera.getMicrophonePermissionsAsync();
-      if (!mic.granted && mic.canAskAgain) await prompt(Camera.requestMicrophonePermissionsAsync);
-    }
+    const mic = await Camera.getMicrophonePermissionsAsync();
+    if (!mic.granted && mic.canAskAgain) await prompt(Camera.requestMicrophonePermissionsAsync);
   }
   if (zone && !zone.sim) {
     const loc = await Location.getForegroundPermissionsAsync();

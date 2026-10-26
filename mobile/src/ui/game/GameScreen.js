@@ -28,8 +28,8 @@ function RoleScreen({ view, serverNow, intent, media, onLeave }) {
   const r = view.round;
   const role = r.roles[view.me];
   const hud = {
-    title: GAMES[r.game].name,
-    location: r.location || ARENAS[r.arena].full,
+    title: GAMES[r.game]?.name || 'USEus',
+    location: r.location || ARENAS[r.arena]?.full || '',
     room: view.code,
     roundKey: roundKeyOf(view),
     game: r.game,

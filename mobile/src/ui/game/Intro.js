@@ -3,6 +3,7 @@ import { Animated, Dimensions, Easing, View } from 'react-native';
 import Svg, { Circle, G, Path, Text as SvgText } from 'react-native-svg';
 import { MapPin } from 'lucide-react-native';
 import { ARENAS, GAMES, PICK_MS, WHEEL_MS } from '../../core';
+import { purgeOldClips } from '../../lib/clips';
 import { prepareRound } from '../../lib/permissions';
 import { buzz, haptic, Synth } from '../../lib/sound';
 import { useTheme } from '../../theme';
@@ -20,7 +21,7 @@ const roleBrief = (view) => {
   if (r.game === 'undercover' && view.mine?.saboteur) return g.roles.saboteur;
   if (r.game === 'doppelganger' && view.mine?.doppelganger) return g.roles.doppelganger;
   if (r.game === 'paparazzi') return { label: 'Sniper', brief: `${g.roles.sniper.brief} Your target: ${nameOf(view, view.mine?.target)}.` };
-  return g.roles[role];
+  return g.roles[role] || { label: role, brief: '' };
 };
 
 // Monochrome roulette wheel over the games that fit the arena.
@@ -122,7 +123,9 @@ export default function Intro({ view, serverNow, intent }) {
 
   // Ask for camera, microphone and location during the briefing, so no prompt lands mid-round.
   useEffect(() => {
-    if (r.stage === 'brief') prepareRound({ game: r.game, films: g.film.includes(r.roles[view.me]), zone: r.zone });
+    if (r.stage !== 'brief') return;
+    prepareRound({ films: g.film.includes(r.roles[view.me]), zone: r.zone });
+    purgeOldClips(`${view.code}:${r.n}:${r.spinId}`);
   }, [r.spinId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {

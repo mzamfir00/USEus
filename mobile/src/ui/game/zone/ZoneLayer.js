@@ -2,7 +2,7 @@
 // live boundary + out-of-bounds penalty, hunter radar pings, hider decoys and heartbeat,
 // the mid-round supply drop and the tactical map.
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Animated, Easing, StyleSheet, TouchableOpacity, View } from 'react-native';
+import { Animated, Easing, Linking, StyleSheet, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Location from 'expo-location';
@@ -27,10 +27,13 @@ import { currentHeading, startHeading, stopHeading } from '../../../lib/motion';
 import { prompt } from '../../../lib/permissions';
 import { buzz, haptic, Synth } from '../../../lib/sound';
 import { T } from '../../primitives';
-import { formatTime, useNow } from '../../helpers';
+import { formatTime, useLater, useNow } from '../../helpers';
 import TacticalMap from './TacticalMap';
 
 const SIM_STEP = 5; // metres per D-pad tap
+// GPS: a fix every 2.5 s or 2 m is plenty for a 30–300 m zone and saves battery.
+const GPS_INTERVAL_MS = 2500;
+const GPS_DISTANCE_M = 2;
 const SEND_MIN_M = 2; // resend a GPS fix after moving this far…
 const SEND_MIN_MS = 4000; // …or this long
 const BEAT_MS = { 20: 1000, 10: 650, 5: 380 }; // heartbeat period by hunter distance
@@ -90,7 +93,7 @@ function useGeoFeed(zone, intent) {
           return;
         }
         startHeading();
-        sub = await Location.watchPositionAsync({ accuracy: Location.Accuracy.BestForNavigation, timeInterval: 1000, distanceInterval: 1 }, (pos) => {
+        sub = await Location.watchPositionAsync({ accuracy: Location.Accuracy.BestForNavigation, timeInterval: GPS_INTERVAL_MS, distanceInterval: GPS_DISTANCE_M }, (pos) => {
           setError(null);
           accept({ lat: pos.coords.latitude, lng: pos.coords.longitude, acc: Math.round(pos.coords.accuracy || 0), at: Date.now() });
         });
@@ -310,11 +313,15 @@ export default function ZoneLayer({ view, serverNow, intent, onStrobe, onRows, c
   const rowsTop = Math.max(64, insets.top + 52);
   const [rowsBottom, setRowsBottom] = useState(0);
 
-  const pushBanner = useCallback((b) => {
-    const id = Math.random().toString(36).slice(2);
-    setBanners((list) => [...list.slice(-2), { ...b, id }]);
-    setTimeout(() => setBanners((list) => list.filter((x) => x.id !== id)), b.ms || 4500);
-  }, []);
+  const later = useLater();
+  const pushBanner = useCallback(
+    (b) => {
+      const id = Math.random().toString(36).slice(2);
+      setBanners((list) => [...list.slice(-2), { ...b, id }]);
+      later(() => setBanners((list) => list.filter((x) => x.id !== id)), b.ms || 4500);
+    },
+    [later]
+  );
 
   /* ---- hunters: a radar ping (or a decoy signal) opens the map for exactly 3.0 s ---- */
   const scanSeen = useRef(intel.scan?.id);
@@ -469,7 +476,7 @@ export default function ZoneLayer({ view, serverNow, intent, onStrobe, onRows, c
   const chip = { borderRadius: 999, borderWidth: 1, borderColor: 'rgba(255,255,255,0.15)', backgroundColor: 'rgba(0,0,0,0.6)' };
   const status = error
     ? error === 'denied'
-      ? 'LOCATION BLOCKED — allow location for USEus in Settings'
+      ? 'LOCATION BLOCKED — allow location for USEus'
       : 'NO GPS SIGNAL'
     : !fix
       ? 'Waiting for GPS…'
@@ -497,14 +504,21 @@ export default function ZoneLayer({ view, serverNow, intent, onStrobe, onRows, c
           <TouchableOpacity accessibilityLabel="Open tactical map" testID="open-map" onPress={() => setMapOpen(true)} style={[chip, { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }]}>
             <MapIcon size={17} color="#fff" />
           </TouchableOpacity>
-          <View style={[chip, { flex: 1, paddingHorizontal: 14, paddingVertical: 6 }]} testID="zone-status" accessibilityLabel={`zone ${toEdge == null ? 'pending' : toEdge >= 0 ? 'in' : 'out'}`}>
+          {/* Tapping a blocked-location status opens the app's settings. */}
+          <TouchableOpacity
+            disabled={error !== 'denied'}
+            onPress={() => Linking.openSettings().catch(() => {})}
+            style={[chip, { flex: 1, paddingHorizontal: 14, paddingVertical: 6 }]}
+            testID="zone-status"
+            accessibilityLabel={`zone ${toEdge == null ? 'pending' : toEdge >= 0 ? 'in' : 'out'}`}
+          >
             <T size={12} w={600} color="#fff" numberOfLines={1}>
               {status}
             </T>
             <T size={10.5} color="rgba(255,255,255,0.6)" numberOfLines={1}>
-              {sub}
+              {error === 'denied' ? 'Tap to open Settings' : sub}
             </T>
-          </View>
+          </TouchableOpacity>
         </View>
 
         {drop && (

@@ -2,10 +2,10 @@ import React, { useEffect, useRef, useState } from 'react';
 import { StyleSheet, TouchableOpacity, View } from 'react-native';
 import { Check, Skull, Volume2 } from 'lucide-react-native';
 import { XP } from '../../core';
-import { cameraPointingDown, subscribeMotion } from '../../lib/motion';
+import { cameraPointingDown, subscribeMotion, useMotionSensor } from '../../lib/motion';
 import { buzz, haptic, speak, Synth } from '../../lib/sound';
 import { Button, T } from '../primitives';
-import { useNow } from '../helpers';
+import { useLater, useNow } from '../helpers';
 import Camera from './Camera';
 import { BlindCountdown, BottomBar, GameShell, PickPlayer, Pop, TopCard, confirm, nameOf, useScheduled } from './shared';
 
@@ -273,6 +273,8 @@ export function Sardines({ view, serverNow, intent, onLeave, hud }) {
 
 export function FloorLava({ view, serverNow, intent, onLeave, hud }) {
   useNow(150);
+  useMotionSensor(); // camera-down check
+  const later = useLater();
   const cam = useRef(null);
   const d = view.round.data;
   const me = view.me;
@@ -313,7 +315,7 @@ export function FloorLava({ view, serverNow, intent, onLeave, hud }) {
         Synth.boom();
         buzz([300, 80, 300]);
       }
-      setTimeout(() => setResult(null), 3000);
+      later(() => setResult(null), 3000);
       const img = await Promise.race([cam.current?.snapshot() ?? null, new Promise((res) => setTimeout(() => res(null), 3500))]);
       intent(img ? { type: 'lavaCheck', n, safe, img, mediaId: `lava${n}-${me.slice(0, 8)}` } : { type: 'lavaCheck', n, safe });
     },
@@ -506,6 +508,7 @@ export function MarcoHunter({ view, serverNow, intent, onLeave }) {
 
 export function MarcoPolo({ view, serverNow, onLeave, hud }) {
   const cam = useRef(null);
+  const later = useLater();
   const d = view.round.data;
   const tagged = !!d.tagged[view.me];
   const [polo, setPolo] = useState(false);
@@ -513,13 +516,13 @@ export function MarcoPolo({ view, serverNow, onLeave, hud }) {
   // Every hider answers with a voice + tone + light, slightly staggered so they can be told apart.
   useScheduled(d.marcos, d.marcoAt, serverNow, () => {
     if (tagged) return;
-    setTimeout(() => {
+    later(() => {
       speak('Polo!');
       Synth.polo();
       cam.current?.flash(300);
       buzz(250);
       setPolo(true);
-      setTimeout(() => setPolo(false), 1500);
+      later(() => setPolo(false), 1500);
     }, Math.random() * 500);
   });
 

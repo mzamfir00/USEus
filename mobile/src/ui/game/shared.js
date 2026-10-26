@@ -1,5 +1,5 @@
 import React, { useCallback, useContext, useEffect, useRef, useState } from 'react';
-import { Alert, Animated, Platform, StyleSheet, TouchableOpacity, View } from 'react-native';
+import { Alert, Animated, Linking, Platform, StyleSheet, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useKeepAwake } from 'expo-keep-awake';
 import { CircleHelp, Siren, X } from 'lucide-react-native';
@@ -7,7 +7,7 @@ import { GAMES } from '../../core';
 import { buzz, Synth } from '../../lib/sound';
 import { PlayerActions } from '../Moderation';
 import { Avatar, Button, Card, Divided, Eyebrow, Sheet, T } from '../primitives';
-import { formatTime, useNow } from '../helpers';
+import { formatTime, useLater, useNow } from '../helpers';
 import { RulesSections } from './Briefing';
 import { VIOLATION_TEXT } from './Camera';
 import { IntentContext, PenaltyContext, ZoneOffsetContext, ZoneStrobeContext, useGameTop } from './context';
@@ -31,7 +31,7 @@ export const confirm = (title, message, onYes, yes = 'Leave') => {
 };
 
 // Full-screen strobe alarm (Snitch Protocol): 250 ms white / 250 ms black.
-function SnitchOverlay({ reason, onResume }) {
+function SnitchOverlay({ reason, onResume, cameraOff }) {
   const [on, setOn] = useState(true);
   useEffect(() => {
     const id = setInterval(() => setOn((v) => !v), 250);
@@ -55,6 +55,9 @@ function SnitchOverlay({ reason, onResume }) {
               : 'Your phone is screaming, flashing and telling the room. It stops when you’re filming again.'}
         </T>
         {onResume ? <Button title="Resume filming" onPress={onResume} style={{ marginTop: 24, alignSelf: 'stretch' }} bg="#fff" color="#000" testID="resume-filming" /> : null}
+        {cameraOff ? (
+          <Button variant="ghost" title="Camera blocked? Open Settings" color="#fff" onPress={() => Linking.openSettings().catch(() => {})} style={{ marginTop: 8, alignSelf: 'stretch' }} />
+        ) : null}
       </View>
     </View>
   );
@@ -124,7 +127,7 @@ export function GameShell({ view, serverNow, roleLabel, onLeave, children, light
           </TouchableOpacity>
           <View pointerEvents="none" style={[chip, { flex: 1, borderRadius: 999, borderWidth: 1, paddingHorizontal: 16, paddingVertical: 7 }]}>
             <T size={13} w={600} color={fg} numberOfLines={1}>
-              {GAMES[r.game].name}
+              {GAMES[r.game]?.name}
             </T>
             <T size={11.5} color={light ? 'rgba(0,0,0,0.6)' : 'rgba(255,255,255,0.6)'} numberOfLines={1} testID="role-label">
               {roleLabel}
@@ -158,7 +161,7 @@ export function GameShell({ view, serverNow, roleLabel, onLeave, children, light
           )
         )}
 
-        {penalty && <SnitchOverlay reason={penalty.reason} onResume={penalty.onResume} />}
+        {penalty && <SnitchOverlay reason={penalty.reason} onResume={penalty.onResume} cameraOff={penalty.cameraOff} />}
       </ZoneOffsetContext.Provider>
 
       {rules && (
@@ -243,9 +246,10 @@ function AlarmBanner({ view, id }) {
 // Whole-screen flash when an event lands (sonar, freeze, bomb pass).
 export function useFlash() {
   const [on, setOn] = useState(false);
+  const later = useLater();
   const trigger = (ms = 2000) => {
     setOn(true);
-    setTimeout(() => setOn(false), ms);
+    later(() => setOn(false), ms);
   };
   return [on, trigger];
 }

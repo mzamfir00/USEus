@@ -115,7 +115,7 @@ const PIN_SIZE = { me: 44, blip: 34, reveal: 30, drop: 30, radar: 26, out: 22, t
 
 // center/radius: the live zone · rings: [{ r, dashed, faint }] · me: { lat, lng, heading }
 // pins: [{ key, kind: blip|reveal|drop|radar|out, lat, lng, label }] · trails: [{ key, pts, hunter, label }]
-export default function TacticalMap({ center, radius, fitRadius, rings = [], me, pins = [], trails = [], interactive = true, style }) {
+function TacticalMap({ center, radius, fitRadius, rings = [], me, pins = [], trails = [], interactive = true, style }) {
   const [size, setSize] = useState(null);
   const [zoom, setZoom] = useState(null); // fractional zoom
   const [offset, setOffset] = useState({ x: 0, y: 0 }); // pan, in screen px
@@ -293,3 +293,10 @@ export default function TacticalMap({ center, radius, fitRadius, rings = [], me,
     </View>
   );
 }
+
+// The HUD around the map re-renders 4×/s; the tiles and overlays only redraw when what they
+// show actually changes (heading to the nearest 4°).
+const signature = (p) =>
+  JSON.stringify([p.center, Math.round((p.radius || 0) * 10), p.fitRadius, p.rings, p.me && [p.me.lat, p.me.lng, p.me.heading == null ? null : Math.round(p.me.heading / 4)], p.pins, p.trails, p.interactive]);
+
+export default React.memo(TacticalMap, (a, b) => a.style === b.style && signature(a) === signature(b));
