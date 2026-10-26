@@ -61,11 +61,27 @@ grep -q "Create account" "$OUT/screen2.xml" || fail "Sign-up screen did not appe
 adb exec-out screencap -p > "$OUT/2-signup.png"
 echo "Sign-up screen rendered"
 
-# Open the in-app Privacy Policy (native sheet) and close it again.
-tap_text "Privacy Policy" screen2 && sleep 3 && dump_ui screen3 && adb exec-out screencap -p > "$OUT/3-privacy.png"
+# Open the in-app Privacy Policy (native sheet) and close it again. The link sits at the
+# bottom of the sign-up form, so scroll until it is on screen.
+found=""
+for i in 1 2 3 4; do
+  dump_ui form
+  if grep -q 'text="Privacy Policy"' "$OUT/form.xml" 2>/dev/null; then found=1; break; fi
+  read -r W H < <(adb shell wm size | grep -oE '[0-9]+x[0-9]+' | tail -1 | tr 'x' ' ')
+  adb shell input swipe $((W / 2)) $((H * 4 / 5)) $((W / 2)) $((H / 4)) 300
+  sleep 1
+done
+[ -n "$found" ] || fail "Privacy Policy link not found on the sign-up screen"
+tap_text "Privacy Policy" form || fail "Could not tap the Privacy Policy link"
+sleep 3
+dump_ui screen3
+adb exec-out screencap -p > "$OUT/3-privacy.png"
 grep -q "Last updated" "$OUT/screen3.xml" || fail "Privacy Policy sheet did not open"
 adb shell input keyevent KEYCODE_BACK
 sleep 2
+dump_ui screen4
+grep -q "Create account" "$OUT/screen4.xml" || fail "Back did not close the Privacy Policy sheet"
+echo "Privacy Policy sheet opens and closes"
 
 adb shell pidof "$PKG" > /dev/null || fail "App closed during the test"
 adb logcat -d > "$OUT/logcat.txt"
