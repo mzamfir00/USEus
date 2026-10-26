@@ -24,7 +24,28 @@ fail() {
 }
 
 dump_ui() {
-  adb shell uiautomator dump /sdcard/ui.xml > /dev/null 2>&1 && adb pull /sdcard/ui.xml "$OUT/$1.xml" > /dev/null 2>&1
+  local n
+  for n in 1 2 3; do
+    adb shell uiautomator dump /sdcard/ui.xml > /dev/null 2>&1 && adb pull /sdcard/ui.xml "$OUT/$1.xml" > /dev/null 2>&1
+    clear_anr "$1" || return 0
+  done
+}
+
+# A slow CI emulator can raise "Pixel Launcher / System UI isn't responding" over the app.
+# Close another app's dialog (wait on ours, and say so), then bring USEus back to the front.
+clear_anr() {
+  local who
+  who=$(grep -oE 'text="[^"]* responding"' "$OUT/$1.xml" 2>/dev/null | head -1 | sed -E 's/^text="//; s/ is(n.{1,6}t| not) responding"$//')
+  [ -n "$who" ] || return 1
+  echo "System dialog: $who isn't responding"
+  if [ "$who" = "USEus" ]; then
+    tap_text "Wait" "$1"
+  else
+    tap_text "Close app" "$1" || tap_text "Wait" "$1"
+  fi
+  sleep 2
+  adb shell monkey -p "$PKG" -c android.intent.category.LAUNCHER 1 > /dev/null 2>&1
+  sleep 3
 }
 
 # Centre of the first UI node whose text contains $1.
