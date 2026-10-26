@@ -2,11 +2,11 @@
 
 An IRL party game where every player uses their own phone. Spin a mission, get your role, film the chaos.
 
-**Live:** https://mzamfir00.github.io/USEus/
+**Live:** https://mzamfir00.github.io/USEus/ · **Android app:** https://github.com/mzamfir00/USEus/releases/latest/download/USEus-release.apk
 
 ## Features
 
-- **Accounts:** sign up with a phone number (with country code) or an email, plus a PIN or password and a date of birth (16+ only). Phone, email and @username must be unique. Accounts are stored in IndexedDB + LocalStorage and mirrored to Supabase until the owner deletes them.
+- **Accounts:** sign up with a phone number (with country code) or an email, plus a PIN or password and a date of birth (16+ only). Phone, email and @username must be unique. Accounts are stored on the device (IndexedDB + LocalStorage on the web, AsyncStorage in the phone apps) and mirrored to Supabase until the owner deletes them.
 - **Tabs:**
   - **Play:** create a room, or join by code or QR.
   - **Squad:** find and add friends.
@@ -65,7 +65,7 @@ An IRL party game where every player uses their own phone. Spin a mission, get y
 
 ## App Store / Google Play compliance
 
-- **In-app account deletion** (Apple 5.1.1, Google Play): Profile → **Delete Account Permanently**, confirmed by typing DELETE. The owner-verified `delete_account()` RPC erases the cloud account, friendships, hosted rooms and their logs, the username in other rooms' scores and logs, and the user's reports. Every local copy (LocalStorage + IndexedDB) is wiped too. If the phone is offline, the cloud deletion retries the next time the app opens online.
+- **In-app account deletion** (Apple 5.1.1, Google Play): Profile → **Delete Account Permanently**, confirmed by typing DELETE. The owner-verified `delete_account()` RPC erases the cloud account, friendships, hosted rooms and their logs, the username in other rooms' scores and logs, and the user's reports. Every local copy (LocalStorage + IndexedDB on the web, the app's storage on phones) is wiped too. If the phone is offline, the cloud deletion retries the next time the app opens online.
 - **IRL safety warning:** shown on first launch, and again in the briefing before every outdoor or dark round, with an "I Understand & Agree" button.
 - **Moderation** (Apple 1.2):
   - Hosts can remove a player from the lobby or the in-game menu; removed players can't rejoin that room.
@@ -77,27 +77,41 @@ An IRL party game where every player uses their own phone. Spin a mission, get y
 
   Set `VITE_SUPPORT_EMAIL` at build time to show a contact address.
 
-## Native apps (Capacitor)
+## Native phone apps (React Native + Expo SDK 52)
 
-- **App:** `appId` `com.useus.game`, `appName` USEus. The native projects live in `android/` and `ios/` (Capacitor 8, iOS via Swift Package Manager).
-- **Permissions:**
-  - **Android** (`AndroidManifest.xml`): CAMERA, FLASHLIGHT, RECORD_AUDIO, ACCESS_FINE/COARSE_LOCATION, VIBRATE.
-  - **iOS** (`Info.plist`): NSCamera / NSMicrophone / NSLocationWhenInUse / NSMotion / NSPhotoLibraryAdd usage descriptions, plus `ITSAppUsesNonExemptEncryption = false`.
-- **Clips:** shared through the native share sheet (`@capacitor/share` + `@capacitor/filesystem`), or `navigator.share({ files })` on the web. Save writes to Documents › USEus (Android) or Files › USEus (iOS).
-- **Native behaviour:** invite links and QR codes always use the public web URL. Android's back button closes the open sheet, or sends the app to the background.
-- **Icons:** `resources/icon.svg` is the source. It is rendered into `public/` (PWA manifest, Apple touch icon, favicon), the Android launcher and adaptive icons, the splash screens, and the iOS App Store icon (opaque 1024×1024).
+The Android and iOS apps are a true native React Native app in [`mobile/`](mobile) — native views (`View`, `Text`, `Modal`, `FlatList`…), no WebView. They run the same game engine as the web app (`src/game/*`, `src/lib/geo.js`, `src/legal/*` are shared through Metro) and speak the same Supabase Realtime room protocol, so phones and browsers can play in one room.
+
+- **App:** `com.useus.game` (Android package and iOS bundle id), portrait, dark, new architecture.
+- **Native modules:**
+  - **Camera** (`expo-camera` `CameraView`): live viewfinder, `recordAsync` clips, `enableTorch` for the flashlight, strobes and candles, QR scanning in Play.
+  - **Haptics** (`expo-haptics`): roulette ticks, a heartbeat that speeds up as the hunter closes in, sonar pulses, out-of-bounds warnings.
+  - **Keep awake** (`expo-keep-awake`): the screen stays on in lobbies and rounds.
+  - **Audio** (`expo-av`): the sound effects (WAVs rendered offline from the web synth by `mobile/scripts/make-sounds.py`), clip playback, and `Audio.Recording` metering for the noise snitch.
+  - **Clips:** saved to the photo library (`expo-media-library`) or shared to TikTok / Reels / WhatsApp (`expo-sharing`).
+  - **GPS Playzone:** `expo-location` `watchPositionAsync` with `Accuracy.BestForNavigation`, a compass from `watchHeadingAsync`, place names from the phone's geocoder. The tactical map is drawn natively: CARTO Dark Matter tiles plus SVG overlays.
+  - **Motion** (`expo-sensors`): Red Light, the Weeping Statue, Floor Is Lava and peek checks.
+  - **Login:** AsyncStorage keeps the session and history on the phone; Supabase syncs accounts.
+- **Native differences:**
+  - Video is recorded in colour, and the REC / location stamp is an on-screen overlay rather than burned into the clip.
+  - Android detects a covered phone with the ambient light sensor plus stillness; iOS has no light-sensor API, so it relies on the other Snitch checks.
+  - Clips are recorded without sound while the noise snitch is listening, because the meter needs the microphone.
+  - On Android, a proof photo taken during recording (Floor Is Lava) briefly splits the clip. TOMARE skips the selfie there rather than delay the freeze.
+- **Permissions:** Android asks for CAMERA, RECORD_AUDIO, location, VIBRATE and WAKE_LOCK, and blocks the READ_MEDIA_* permissions (saving to the gallery doesn't need them). On iOS, `app.json` carries the camera, microphone, location, motion and photo-library-add usage strings, plus `ITSAppUsesNonExemptEncryption = false`.
+- **Icons:** `mobile/assets/source/icon.svg` is the source for the app icon, adaptive icon, splash screen and the web icons in `public/`.
 
 ```bash
-npm run native:sync   # build the web bundle and copy it into android/ + ios/
-npm run android       # …and open Android Studio
-npm run ios           # …and open Xcode (macOS)
+cd mobile
+npm install
+npm run check          # lint + compile the Android JS bundle
+npx expo run:android   # build and run on a device or emulator (needs the Android SDK)
+npx expo run:ios       # macOS + Xcode
 ```
 
-**Android CI:** `.github/workflows/build-android.yml` runs on every push to `main`, or manually from the Actions tab.
-- It builds the web bundle at the root path, runs `cap sync android`, then Gradle `assembleDebug assembleRelease bundleRelease`.
-- It uploads two artifacts: **USEus-apk** (the installable debug APK, plus the release APK) and **USEus-aab** (the Play App Bundle). The versionCode follows the run number.
-- It uses JDK 21, which Capacitor 8 and Android Gradle Plugin 8.13 require.
-- To get signed release builds for Play, add the repository secrets `ANDROID_KEYSTORE_BASE64` (the keystore, `base64 -w0`), `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS` and `ANDROID_KEY_PASSWORD`. Without them, release builds are unsigned.
+**Android CI:** `.github/workflows/build-native-android.yml` runs on every push to `main`, or manually from the Actions tab.
+- Steps: Node 20, JDK 17 (Temurin) and the Android SDK, then `npm install`, lint and an Android bundle check, `npx expo prebuild --platform android --clean`, and `./gradlew assembleRelease bundleRelease`.
+- Outputs: the **USEus-release-apk** and **USEus-release-aab** artifacts. The APK is also published on a GitHub Release, and the newest one is always at `https://github.com/mzamfir00/USEus/releases/latest/download/USEus-release.apk`.
+- Version: `1.0.<run number>`, and the versionCode follows the run number.
+- **Signing:** add the repository secrets `ANDROID_KEYSTORE_BASE64` (`base64 -w0 your.keystore`), `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS` and `ANDROID_KEY_PASSWORD` to sign every build with your key, which Google Play requires. Without them, each run signs with a fresh key generated just for that build. The key is never stored or uploaded, so to update an installed copy you have to uninstall it first.
 
 ## Cloud database (optional)
 
@@ -121,7 +135,7 @@ src/
   game/briefings.js     Mission Briefing content: setup steps, per-role controls and penalties
   lib/clips.js          recorded clips (replay / save / share)
   lib/motion.js         shared motion + orientation + compass feed (iOS permission flow)
-  lib/platform.js       Capacitor vs browser: public invite URL, Android back button
+  lib/platform.js       public web address for invite links
   lib/geo.js            Haversine / bearing / destination maths, zone radius + shrinking ring
   ui/game/zone/*        GPS Playzone HUD, out-of-bounds penalty, radar, decoy, heartbeat, Leaflet map
   ui/game/Briefing.jsx  ready-up gate + the in-game "?" rules drawer
@@ -132,6 +146,17 @@ src/
   ui/Safety.jsx         IRL safety warning gate
   ui/Moderation.jsx     block / report / remove player sheets
   styles/theme.css      #000 / #FFF / #141414 / #262626 design system + DNA mutations
+  legal/content.js      Privacy Policy + Terms text (web and native variants)
+  game/brief.js         per-role briefing builder shared by web and native
+
+mobile/                 React Native app (Expo SDK 52), reuses src/game, src/lib/geo.js, src/legal
+  App.js                fonts, storage hydrate, auth gate, bottom tabs, safety gate, deep links
+  src/core.js           re-exports the shared engine
+  src/lib/*             AsyncStorage database, Supabase transport, sounds + haptics, motion, clips
+  src/hooks/useRoom.js  host / client loops (same protocol as the web app)
+  src/theme/            monochrome tokens, fonts, Room DNA styles
+  src/ui/*              native screens: auth, tabs, room, lobby, results, every game, GPS Playzone
+  plugins/              config plugin that signs release builds from CI secrets
 ```
 
 ## Develop
@@ -142,4 +167,4 @@ npm run dev
 npm run build
 ```
 
-Every push to `main` deploys to GitHub Pages via `.github/workflows/deploy.yml`.
+Every push to `main` deploys the web app to GitHub Pages (`.github/workflows/deploy.yml`) and builds the Android app (`.github/workflows/build-native-android.yml`).

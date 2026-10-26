@@ -1,12 +1,7 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useRef } from 'react';
 import { X } from 'lucide-react';
-import { onBack } from '../lib/platform';
 
 export function Sheet({ title, onClose, children }) {
-  // Android back button closes the sheet on top.
-  const close = useRef(onClose);
-  close.current = onClose;
-  useEffect(() => onBack(() => close.current?.()), []);
   return (
     <div className="fade fixed inset-0 z-50 flex items-end justify-center bg-black/70" onClick={onClose}>
       <div

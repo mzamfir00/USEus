@@ -1,0 +1,153 @@
+name: Build native Android (APK + AAB)
+
+# React Native / Expo SDK 52 app in mobile/: checks the JS bundle, generates the native
+# project with `expo prebuild`, builds a signed release APK + Play App Bundle, uploads both
+# as artifacts and publishes the APK on a GitHub Release.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write # create the GitHub Release
+
+concurrency:
+  group: native-android-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: mobile
+    env:
+      USEUS_VERSION_CODE: ${{ github.run_number }}
+      USEUS_VERSION_NAME: 1.0.${{ github.run_number }}
+      HAS_KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
+      # Cloud database. The publishable key is designed to ship in client code;
+      # repository secrets with the same names override these values.
+      EXPO_PUBLIC_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL || 'https://qdyinlqunsagypgaugky.supabase.co' }}
+      EXPO_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY || 'sb_publishable_M0InuYBC-lZE68NXXE8Q-w_epXI3Y7U' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+
+      - name: Set up Java (JDK 17 Temurin)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      # The action's default package list includes the retired 'tools' package, so name them.
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools platforms;android-35 build-tools;35.0.0
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Check the JavaScript (lint + Android bundle)
+        run: |
+          npm run lint
+          npx expo export --platform android --output-dir dist
+
+      - name: Generate the native Android project
+        run: npx expo prebuild --platform android --clean --no-install
+
+      # Stable signing comes from repository secrets. Without them a fresh key is generated
+      # for this run only: it is never stored or uploaded (this repository is public).
+      - name: Release keystore
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          KS="$RUNNER_TEMP/useus-release.keystore"
+          if [ "$HAS_KEYSTORE" = "true" ]; then
+            echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > "$KS"
+            STORE_PASS="$ANDROID_KEYSTORE_PASSWORD"
+            ALIAS="$ANDROID_KEY_ALIAS"
+            KEY_PASS="${ANDROID_KEY_PASSWORD:-$ANDROID_KEYSTORE_PASSWORD}"
+          else
+            STORE_PASS="$(openssl rand -hex 24)"
+            ALIAS=useus
+            KEY_PASS="$STORE_PASS"
+            keytool -genkeypair -v -storetype PKCS12 -keystore "$KS" -alias "$ALIAS" \
+              -keyalg RSA -keysize 2048 -validity 10000 \
+              -storepass "$STORE_PASS" -keypass "$KEY_PASS" \
+              -dname "CN=USEus, O=USEus, C=US"
+          fi
+          echo "::add-mask::$STORE_PASS"
+          echo "::add-mask::$KEY_PASS"
+          {
+            echo "USEUS_KEYSTORE=$KS"
+            echo "USEUS_KEYSTORE_PASSWORD=$STORE_PASS"
+            echo "USEUS_KEY_ALIAS=$ALIAS"
+            echo "USEUS_KEY_PASSWORD=$KEY_PASS"
+          } >> "$GITHUB_ENV"
+
+      - name: Set up Gradle (cache)
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Build release APK and App Bundle
+        working-directory: mobile/android
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon assembleRelease bundleRelease
+
+      - name: Collect outputs
+        run: |
+          mkdir -p out
+          cp android/app/build/outputs/apk/release/app-release.apk out/USEus-release.apk
+          cp android/app/build/outputs/bundle/release/app-release.aab out/USEus-release.aab
+          ls -la out
+          {
+            echo "### USEus native Android $USEUS_VERSION_NAME (versionCode $USEUS_VERSION_CODE)"
+            echo ""
+            echo "- **Install:** download \`USEus-release.apk\` from the release (or the \`USEus-release-apk\` artifact) and open it on your phone."
+            echo "- **Google Play:** upload \`USEus-release.aab\` from the \`USEus-release-aab\` artifact."
+            if [ "$HAS_KEYSTORE" != "true" ]; then
+              echo "- Signed with a one-off key generated for this run. To update an installed copy, uninstall it first — or add the ANDROID_KEYSTORE_BASE64 / ANDROID_KEYSTORE_PASSWORD / ANDROID_KEY_ALIAS / ANDROID_KEY_PASSWORD secrets for a permanent key (required for Google Play)."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: USEus-release-apk
+          path: mobile/out/USEus-release.apk
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload App Bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: USEus-release-aab
+          path: mobile/out/USEus-release.aab
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: android-v1.0.${{ github.run_number }}
+          name: USEus Android 1.0.${{ github.run_number }}
+          target_commitish: ${{ github.sha }}
+          make_latest: true
+          files: mobile/out/USEus-release.apk
+          body: |
+            Native Android build of USEus (React Native / Expo SDK 52) from ${{ github.sha }}.
+
+            **Install:** download `USEus-release.apk` below on your Android phone and open it (allow installs from your browser when asked).
+            The newest build is always at https://github.com/${{ github.repository }}/releases/latest/download/USEus-release.apk

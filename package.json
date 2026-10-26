@@ -6,18 +6,9 @@
   "scripts": {
     "dev": "vite --host",
     "build": "vite build",
-    "preview": "vite preview --host",
-    "native:sync": "vite build && cap sync",
-    "android": "vite build && cap sync android && cap open android",
-    "ios": "vite build && cap sync ios && cap open ios"
+    "preview": "vite preview --host"
   },
   "dependencies": {
-    "@capacitor/android": "^8.5.3",
-    "@capacitor/app": "^8.1.2",
-    "@capacitor/core": "^8.5.3",
-    "@capacitor/filesystem": "^8.1.5",
-    "@capacitor/ios": "^8.5.3",
-    "@capacitor/share": "^8.0.3",
     "@supabase/supabase-js": "^2.118.0",
     "jsqr": "^1.4.0",
     "leaflet": "^1.9.4",
@@ -28,7 +19,6 @@
     "react-dom": "18.3.1"
   },
   "devDependencies": {
-    "@capacitor/cli": "^8.5.3",
     "@vitejs/plugin-react": "4.3.4",
     "autoprefixer": "10.4.20",
     "postcss": "8.4.49",
