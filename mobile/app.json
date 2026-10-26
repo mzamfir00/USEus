@@ -103,6 +103,17 @@
           }
         }
       ],
+      [
+        "react-native-google-mobile-ads",
+        {
+          "androidAppId": "ca-app-pub-5297692661147791~7933848729",
+          "iosAppId": "ca-app-pub-5297692661147791~8667723772",
+          "delayAppMeasurementInit": true,
+          "skAdNetworkItems": [
+            "cstr6suwn9.skadnetwork"
+          ]
+        }
+      ],
       "expo-font",
       "expo-asset"
     ]

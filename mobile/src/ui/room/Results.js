@@ -1,10 +1,10 @@
-import React, { useEffect, useState } from 'react';
-import { ScrollView, View } from 'react-native';
+import React, { useEffect, useRef, useState } from 'react';
+import { ScrollView, TouchableOpacity, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ResizeMode, Video } from 'expo-av';
-import { Download, Radar, Share2, Siren } from 'lucide-react-native';
-import { ARENAS, GAMES, XP } from '../../core';
+import { Download, Radar, Share2, Siren, Zap } from 'lucide-react-native';
+import { ARENAS, BONUS_XP, GAMES, XP, proLocked, roomPro } from '../../core';
 import { downloadClip, shareClip, useClips } from '../../lib/clips';
 import { buzz, haptic, Synth } from '../../lib/sound';
 import { useTheme } from '../../theme';
@@ -13,6 +13,8 @@ import Photo from '../game/Photo';
 import { nameOf } from '../game/shared';
 import TacticalMap from '../game/zone/TacticalMap';
 import { formatTime, useLater } from '../helpers';
+import ProGate from '../monetization/ProGate';
+import { interstitialDue, useAdBreak } from '../monetization/useAdBreak';
 import { Avatar, Button, Card, Divided, Eyebrow, LiveDot, SectionLabel, T, Title } from '../primitives';
 
 const initials = (name) =>
@@ -262,7 +264,7 @@ function ZoneSummary({ view }) {
   const events = [
     ...z.radar.map((e) =>
       e.by
-        ? { at: e.at, text: `${nameOf(view, e.by)} used radar · ${e.seen} hider${e.seen === 1 ? '' : 's'} exposed${e.decoys.length ? ` · ${e.decoys.length} decoy` : ''}`, xp: XP.radarPing }
+        ? { at: e.at, text: `${nameOf(view, e.by)} used radar · ${e.seen} hider${e.seen === 1 ? '' : 's'} exposed${e.decoys.length ? ` · ${e.decoys.length} decoy` : ''}${e.free ? ' · free' : ''}`, xp: e.free ? 0 : XP.radarPing }
         : { at: e.at, text: `${nameOf(view, e.decoys[0])} sent a decoy signal` }
     ),
     ...z.outs.map((o) => ({ at: o.at, text: `${nameOf(view, o.id)} left the zone · position revealed`, xp: XP.zoneOut })),
@@ -376,6 +378,66 @@ function Clips({ roundKey }) {
   );
 }
 
+// Post-round Double XP: your round XP again plus a flat bonus, for a short rewarded ad
+// (free with Pro). Still claimable for a moment after the host spins again.
+function DoubleXp({ view, intent }) {
+  const t = useTheme();
+  const ads = useAdBreak(view, intent);
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState('');
+  const b = view.bonus;
+  const me = view.me;
+  if (!view.monetized || !b || b.key !== view.results?.roundKey || !b.who.includes(me)) return null;
+  const claimed = b.ids[me];
+  const amount = Math.max(0, b.deltas[me] || 0) + BONUS_XP;
+
+  if (claimed != null) {
+    return (
+      <View style={{ marginTop: 24, borderRadius: 20, backgroundColor: t.c.fg, paddingHorizontal: 18, paddingVertical: 16, flexDirection: 'row', alignItems: 'center', gap: 8 }} testID="double-xp-done">
+        <Zap size={15} color={t.c.bg} fill={t.c.bg} />
+        <T size={14} w={800} ls={0.4} color={t.c.bg}>
+          +{claimed} BONUS XP CLAIMED
+        </T>
+      </View>
+    );
+  }
+  const claim = async () => {
+    setBusy(true);
+    setNote('');
+    const ok = await ads.rewarded(`Claiming +${amount} bonus XP`);
+    if (ok) {
+      if (!(await ads.confirm({ type: 'bonusXp', roundKey: b.key }, (v) => v?.bonus?.ids?.[me] != null))) setNote('The room didn’t answer. Check your connection.');
+    } else if (ok === false) setNote('No reward: the ad was skipped.');
+    setBusy(false);
+  };
+  const title = `⚡ CLAIM 2X ROUND XP (+${BONUS_XP} BONUS XP) — ${ads.free ? 'PRO PERK' : 'WATCH SHORT AD'}`;
+  return (
+    <View style={{ marginTop: 24 }}>
+      <TouchableOpacity
+        onPress={claim}
+        disabled={busy}
+        activeOpacity={0.85}
+        accessibilityRole="button"
+        accessibilityLabel={title}
+        testID="double-xp"
+        style={{ borderRadius: 20, borderWidth: 1, borderColor: t.c.fg, backgroundColor: t.c.card, paddingHorizontal: 18, paddingVertical: 16, opacity: busy ? 0.5 : 1 }}
+      >
+        <T size={14} w={800} ls={0.4} lh={1.3}>
+          {busy ? 'CLAIMING…' : title}
+        </T>
+        <T muted size={12.5} style={{ marginTop: 4 }}>
+          +{amount} XP to your profile and this room’s leaderboard.
+        </T>
+      </TouchableOpacity>
+      {note ? (
+        <T muted size={12.5} style={{ marginTop: 8 }}>
+          {note}
+        </T>
+      ) : null}
+    </View>
+  );
+}
+
 export default function Results({ view, intent, media }) {
   const t = useTheme();
   const insets = useSafeAreaInsets();
@@ -399,6 +461,23 @@ export default function Results({ view, intent, media }) {
   }, [res.roundKey]);
 
   const ranked = [...view.players].sort((a, b) => b.xp - a.xp);
+  // Every 3rd completed round the host's next tap plays the interstitial first (not with Pro).
+  const ads = useAdBreak(view, intent);
+  const adShown = useRef(null);
+  const [moving, setMoving] = useState(false);
+  const [gate, setGate] = useState(null);
+  const again = GAMES[view.settings.game];
+  const againLocked = view.settings.mode === 'manual' && !!again && proLocked(view, again.id);
+  const moveOn = async (action) => {
+    if (moving) return;
+    if (interstitialDue(view) && adShown.current !== res.roundKey) {
+      adShown.current = res.roundKey;
+      setMoving(true);
+      await ads.interstitial();
+      setMoving(false);
+    }
+    intent(action);
+  };
   return (
     <View style={{ flex: 1 }} testID="results">
       <ScrollView contentContainerStyle={{ paddingHorizontal: 24, paddingBottom: 170 }}>
@@ -413,6 +492,8 @@ export default function Results({ view, intent, media }) {
             {won ? 'You’re on the winning side.' : 'Not your round.'}
           </T>
         </View>
+
+        <DoubleXp view={view} intent={intent} />
 
         <View style={{ marginTop: 24 }}>
           <Reveal view={view} media={media} />
@@ -463,8 +544,14 @@ export default function Results({ view, intent, media }) {
       <LinearGradient colors={['transparent', t.c.bg, t.c.bg]} locations={[0, 0.35, 1]} style={{ position: 'absolute', left: 0, right: 0, bottom: 0, paddingTop: 40, paddingHorizontal: 24, paddingBottom: 16 + insets.bottom }}>
         {isHost ? (
           <>
-            <Button title={view.settings.mode === 'random' ? 'Spin again' : `Play ${GAMES[view.settings.game]?.name || 'it'} again`} onPress={() => intent({ type: 'start' })} testID="play-again" />
-            <Button variant="ghost" title="Change arena or game" color={t.c.muted} onPress={() => intent({ type: 'lobby' })} style={{ marginTop: 4, minHeight: 44 }} testID="to-lobby" />
+            <Button
+              title={view.settings.mode === 'random' ? 'Spin again' : againLocked ? `Unlock ${again.name} again` : `Play ${again?.name || 'it'} again`}
+              icon={againLocked ? Zap : undefined}
+              disabled={moving}
+              onPress={() => (againLocked ? setGate({ title: again.name, what: again.name, ids: [again.id] }) : moveOn({ type: 'start' }))}
+              testID="play-again"
+            />
+            <Button variant="ghost" title="Change arena or game" color={t.c.muted} disabled={moving} onPress={() => moveOn({ type: 'lobby' })} style={{ marginTop: 4, minHeight: 44 }} testID="to-lobby" />
           </>
         ) : (
           <View style={{ height: 56, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
@@ -475,6 +562,15 @@ export default function Results({ view, intent, media }) {
           </View>
         )}
       </LinearGradient>
+      <ProGate
+        gate={isHost && !roomPro(view) ? gate : null}
+        onWatch={async (g) => {
+          const ok = await ads.unlock(g);
+          if (ok) adShown.current = res.roundKey; // one ad per break: no interstitial on top
+          return ok;
+        }}
+        onClose={() => setGate(null)}
+      />
     </View>
   );
 }

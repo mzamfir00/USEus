@@ -1,7 +1,10 @@
 import React, { useState } from 'react';
 import { TouchableOpacity, View } from 'react-native';
-import { Ban, Check, ChevronRight, Cloud, FileText, Lock, LogOut, Shield, Trash2, Volume2 } from 'lucide-react-native';
+import { Ban, Check, ChevronRight, Cloud, FileText, Lock, LogOut, RotateCcw, Shield, ShieldCheck, Trash2, Volume2, Zap } from 'lucide-react-native';
 import { DNA_STYLES } from '../../core';
+import { VIP_STYLE } from '../../config/monetization';
+import { activePro, openStore, restore, showPrivacyOptions, useMonetization } from '../../services/monetizationService';
+import { HOST_PITCH, proLabel } from '../monetization/ProStore';
 import { ageFromDob, cloudConfig, deleteAccount, setCloudConfig, setTheme, testCloud } from '../../lib/database';
 import { MONTH_NAMES } from '../../lib/format';
 import { useTheme } from '../../theme';
@@ -167,6 +170,59 @@ function InfoRow({ label, value }) {
   );
 }
 
+// ⚡ PRO PASS: status, the store, Restore Purchases and (EEA/UK) the ad privacy choices.
+function ProPass() {
+  const m = useMonetization();
+  const pro = activePro(m.pro);
+  const [note, setNote] = useState('');
+  const [busy, setBusy] = useState(false);
+  return (
+    <>
+      <SectionLabel>Pro Pass</SectionLabel>
+      <TouchableOpacity
+        onPress={openStore}
+        activeOpacity={0.85}
+        accessibilityRole="button"
+        testID="pro-pass-profile"
+        style={{ borderRadius: 22, borderWidth: 1, borderColor: '#fff', backgroundColor: pro ? '#fff' : '#000', padding: 18 }}
+      >
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          <Zap size={16} color={pro ? '#000' : '#fff'} fill={pro ? '#000' : 'transparent'} />
+          <T size={14} w={800} ls={1.2} color={pro ? '#000' : '#fff'} style={{ flex: 1 }}>
+            {pro ? proLabel(m.pro).toUpperCase() : 'PRO PASS'}
+          </T>
+          <ChevronRight size={18} color={pro ? '#000' : '#fff'} />
+        </View>
+        <T size={13.5} lh={1.4} color={pro ? 'rgba(0,0,0,0.65)' : 'rgba(255,255,255,0.7)'} style={{ marginTop: 8 }}>
+          {pro ? 'Every room you host is unlocked and ad-free for the whole squad.' : `Only the host needs Pro. ${HOST_PITCH}`}
+        </T>
+      </TouchableOpacity>
+      <Card style={{ marginTop: 12 }}>
+        <Divided>
+          <SettingRow
+            icon={RotateCcw}
+            label={busy ? 'Restoring…' : 'Restore Purchases'}
+            testID="profile-restore"
+            onPress={async () => {
+              if (busy) return;
+              setBusy(true);
+              const r = await restore();
+              setBusy(false);
+              setNote(r.ok ? (r.pro ? `Restored: ${proLabel(r.pro)}.` : 'No passes to restore on this account.') : r.error);
+            }}
+          />
+          {m.privacyOptions ? <SettingRow icon={ShieldCheck} label="Ad privacy choices" onPress={showPrivacyOptions} /> : null}
+        </Divided>
+      </Card>
+      {note ? (
+        <T muted size={13} center style={{ marginTop: 8 }} testID="profile-restore-note">
+          {note}
+        </T>
+      ) : null}
+    </>
+  );
+}
+
 export default function Profile({ account, onAccount, sound, setSound, onSignOut, onDeleted }) {
   const t = useTheme();
   const [sheet, setSheet] = useState(null);
@@ -213,18 +269,21 @@ export default function Profile({ account, onAccount, sound, setSound, onSignOut
         ))}
       </Card>
 
+      <ProPass />
+
       <SectionLabel>Room aesthetic</SectionLabel>
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12 }}>
-        {Object.entries(DNA_STYLES).map(([id, style]) => {
-          const unlocked = account.aesthetics.includes(id);
+        {[...Object.entries(DNA_STYLES), [VIP_STYLE.id, VIP_STYLE]].map(([id, style]) => {
+          const vip = id === VIP_STYLE.id;
+          const unlocked = account.aesthetics.includes(id) && (!vip || account.pro?.plan === 'lifetime');
           const active = account.theme === id;
           return (
             <Card
               key={id}
               style={{ width: '47.5%', opacity: unlocked ? 1 : 0.5 }}
               inner={{ padding: 16, borderColor: active ? t.c.fg : t.c.border, minHeight: 112 }}
-              disabled={!unlocked}
-              onPress={async () => onAccount(await setTheme(account, id))}
+              disabled={!unlocked && !vip}
+              onPress={async () => (unlocked ? onAccount(await setTheme(account, id)) : openStore())}
               accessibilityLabel={style.name}
             >
               <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -234,7 +293,7 @@ export default function Profile({ account, onAccount, sound, setSound, onSignOut
                 {active ? <Check size={16} color={t.c.fg} /> : !unlocked ? <Lock size={14} color={t.c.muted} /> : null}
               </View>
               <T muted size={12.5} lh={1.35} style={{ marginTop: 8 }}>
-                {unlocked ? style.motto : 'Evolve a room into this style to unlock.'}
+                {unlocked ? style.motto : vip ? '⚡ Lifetime Pro Host exclusive.' : 'Evolve a room into this style to unlock.'}
               </T>
             </Card>
           );

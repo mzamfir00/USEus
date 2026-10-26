@@ -309,6 +309,16 @@ export const GAMES = {
   },
 };
 
+/* ------------------------------ Pro features ------------------------------ */
+
+// In rooms hosted from the native app, these games and the closing ring need the host's Pro
+// Pass, or a rewarded ad that unlocks them for one match. Everything else stays free.
+export const PRO_GAMES = ['midnight_man', 'daruma', 'doppelganger', 'dead_silence', 'paparazzi', 'sardines', 'marco_polo'];
+export const PRO_SHRINK = 'shrink'; // GPS Playzone: shrinking battle-royale ring
+export const BONUS_XP = 500; // post-round claim: your round XP again, plus this
+export const EMERGENCY_RADAR_MAX = 3; // purchased emergency pings a hunter may fire per round
+export const BUSY_MS = 90000; // longest one player's ad can hold back the countdown
+
 /* ------------------------------ game packs ------------------------------- */
 
 // Limited-time seasonal pack: playable from October 1 to November 7 every year.

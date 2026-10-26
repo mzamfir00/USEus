@@ -4,6 +4,7 @@ import { openClient, openHost } from '../lib/net';
 import { isOnline, onNetworkChange } from '../lib/network';
 import {
   applyRoundStats,
+  grantXp,
   isBlocked,
   loadRoom,
   publicProfile,
@@ -98,6 +99,13 @@ export function useRoom(profile, onProfileUpdate) {
         if (updated) onProfileRef.current?.(updated);
       });
     }
+    // Post-round 2x XP claim, once the host has credited it.
+    const bonus = me && v.bonus?.ids?.[me.id];
+    if (bonus) {
+      grantXp(me.id, `bonus:${v.bonus.key}`, bonus).then((updated) => {
+        if (updated) onProfileRef.current?.(updated);
+      });
+    }
   }, []);
 
   /* ------------------------------- host ----------------------------------- */
@@ -139,8 +147,8 @@ export function useRoom(profile, onProfileUpdate) {
         saboteurWon: !!next.results.reveal?.saboteur && next.results.winners.includes(next.results.reveal.saboteur),
         players: next.players.filter((p) => r.participants.includes(p.id)).map((p) => p.username),
       });
-    } else if (JSON.stringify(next.settings) !== JSON.stringify(prev.settings)) {
-      saveRoom(next.code, record);
+    } else if (JSON.stringify(next.settings) !== JSON.stringify(prev.settings) || JSON.stringify(next.scores) !== JSON.stringify(prev.scores)) {
+      saveRoom(next.code, record); // settings changes and post-round 2x XP claims
     }
   }, []);
 
@@ -342,7 +350,7 @@ export function useRoom(profile, onProfileUpdate) {
         }
         host.current = {
           bus: null,
-          game: createRoom({ code, host: publicProfile(me), saved: mine }),
+          game: createRoom({ code, host: publicProfile(me), saved: mine, monetized: true }),
           conns: new Map(),
           lastSeen: new Map(),
           media: new Map(),

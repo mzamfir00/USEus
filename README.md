@@ -119,6 +119,35 @@ npx expo run:ios       # macOS + Xcode
 - Version: `1.0.<run number>`, and the versionCode follows the run number.
 - **Signing:** add the repository secrets `ANDROID_KEYSTORE_BASE64` (`base64 -w0 your.keystore`), `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS` and `ANDROID_KEY_PASSWORD` to sign every build with your key, which Google Play requires. Without them, each run signs with a fresh key generated just for that build. The key is never stored or uploaded, so to update an installed copy you have to uninstall it first.
 
+### Monetization (native app): AdMob + RevenueCat
+
+Configured in `mobile/src/config/monetization.js`, run by `mobile/src/services/monetizationService.js` (`.web.js` for the web preview).
+
+- **Only the host needs Pro.** In rooms hosted from the app, a host with a Pro Pass unlocks every game for the whole room and removes ads for everyone. Web-hosted rooms stay fully free.
+- **Free forever:** Blind Sonar, Hide & Seek: Snitch Cam, Blind Teleprompter, The Floor Is Lava and Don't Blink, plus the other party games.
+- **⚡ Pro / ad-unlockable:** The Midnight Man, Daruma-San, The Doppelgänger, Dead Silence, Paparazzi Sniper, Sardines, Marco Polo Flash and the shrinking battle-royale ring. A free host can watch a rewarded ad to unlock one of them for the whole room for one match. The roulette leaves locked games off the wheel until they're unlocked.
+- **Rewarded placements:**
+  - Lobby: unlock a Pro game.
+  - Briefing, GPS hunts: hunter +1 radar charge (2/2 → 3/3, the extra ping costs no XP); hider Ghost Shield (hidden from the first radar ping).
+  - Results: 2x round XP plus 500 bonus XP.
+  - Pro players and Pro rooms get these perks without an ad.
+- **Sponsor Break:** if no rewarded ad is ready or AdMob returns no fill (new units can take an hour), a 10-second monochrome countdown plays and grants the reward at 0 s.
+- **Interstitial:** after every 3rd completed round, when the room moves on from the results screen, unless the host has Pro.
+- **Ad rules:**
+  - Ads never show during the countdown or live play (camera, flashlight and mic in use).
+  - A player watching an ad holds the countdown, even against a force start (90 s at most).
+  - Development builds use Google's test ad units.
+  - Google's consent form (UMP) runs before the first ad.
+- **Store:** ⚡ PRO PASS in the room header and in Profile. It offers the Weekend Pass (€0.99, 48 h), Pro Host Lifetime (€4.99, includes the Monochrome VIP room theme) and the Radar Pack (€0.99, +10 emergency radar pings and +1,000 XP), plus RevenueCat's native paywall and Restore Purchases.
+- **Profile sync:** purchases follow the USEus account (`Purchases.logIn`). The pass is mirrored to `accounts.pro_plan` / `pro_until`, so re-run `supabase/schema.sql`.
+- **RevenueCat dashboard:**
+  - Create the entitlement `pro` and attach `useus_pro_host_lifetime` to it.
+  - Set up `useus_weekend_pass` and `useus_radar_pack` as consumables. The app measures the 48 hours from the newest weekend purchase.
+  - Optionally design a paywall.
+- **RevenueCat keys:**
+  - The Test Store key (`test_…`) is used only in development builds. RevenueCat deliberately crashes a release build configured with it.
+  - For release builds, add the store keys as repository secrets `REVENUECAT_ANDROID_API_KEY` (`goog_…`) and `REVENUECAT_IOS_API_KEY` (`appl_…`). Until then, release builds keep purchases switched off.
+
 ## Cloud database (optional)
 
 1. Create a Supabase project and run [`supabase/schema.sql`](supabase/schema.sql). **Re-run it after updating the app.** It's idempotent, and it adds the `delete_account()` RPC and the `reports` table that in-app deletion and reporting need. It creates `accounts`, `friendships`, `rooms`, `mission_logs` and `reports`, along with row-level security, the login/search/delete functions, and the owner-only-delete and 16+ triggers.

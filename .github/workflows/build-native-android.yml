@@ -32,6 +32,10 @@ jobs:
       # repository secrets with the same names override these values.
       EXPO_PUBLIC_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL || 'https://qdyinlqunsagypgaugky.supabase.co' }}
       EXPO_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY || 'sb_publishable_M0InuYBC-lZE68NXXE8Q-w_epXI3Y7U' }}
+      # RevenueCat store keys (goog_… / appl_…). Without them the release build keeps purchases
+      # off: RevenueCat crashes a release build that uses its Test Store key, by design.
+      EXPO_PUBLIC_REVENUECAT_ANDROID_KEY: ${{ secrets.REVENUECAT_ANDROID_API_KEY }}
+      EXPO_PUBLIC_REVENUECAT_IOS_KEY: ${{ secrets.REVENUECAT_IOS_API_KEY }}
     steps:
       - uses: actions/checkout@v4
 

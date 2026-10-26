@@ -6,6 +6,8 @@ import { MISSIONS } from './missions';
 import { DEFAULT_PACK, DNA_STYLES, MAX_PLAYERS } from './constants';
 import {
   ARENAS,
+  BONUS_XP,
+  BUSY_MS,
   CHECKPOINTS,
   COVERT_TASKS,
   DARES,
@@ -13,11 +15,14 @@ import {
   DEFAULT_RADIUS,
   DIRECTIONS,
   DROP_RADIUS,
+  EMERGENCY_RADAR_MAX,
   GAMES,
   gamesFor,
   HEARTBEAT_BANDS,
   halloweenLive,
   HUNT,
+  PRO_GAMES,
+  PRO_SHRINK,
   PRODUCTS,
   RADAR_MS,
   RADAR_USES,
@@ -91,7 +96,7 @@ const defaultZone = (arena, saved) => ({
 const validPoint = (p) => p && Number.isFinite(p.lat) && Number.isFinite(p.lng) && Math.abs(p.lat) <= 90 && Math.abs(p.lng) <= 180;
 const round6 = (n) => Math.round(n * 1e6) / 1e6;
 
-export function createRoom({ code, host, saved }) {
+export function createRoom({ code, host, saved, monetized = false }) {
   const scores = saved?.scores || {};
   const arena = ARENAS[saved?.settings?.arena] ? saved.settings.arena : 'indoor';
   return {
@@ -116,8 +121,30 @@ export function createRoom({ code, host, saved }) {
     banned: [], // players the host removed: they can't rejoin this room
     dna: saved?.dna || emptyDNA(),
     scores,
+    // Rooms hosted from the native app: Pro games need the host's Pro Pass or a one-match
+    // ad unlock. Web-hosted rooms stay fully free.
+    monetized: !!monetized,
+    pro: null, // host's active pass: { plan: 'weekend' | 'lifetime', until }
+    unlocks: {}, // Pro games / features unlocked by a rewarded ad for the next match
+    busy: {}, // id -> until: a player is watching an ad, so the countdown waits for them
+    completedRounds: 0,
+    bonus: null, // last finished round's 2x XP claims: { key, deltas, who, ids }
     seq: 0,
   };
+}
+
+/* ---------------------------- Pro & sponsor breaks ----------------------- */
+
+export const roomPro = (s, now = Date.now()) => !!s?.pro && (s.pro.until == null || s.pro.until > now);
+export const isProFeature = (id) => id === PRO_SHRINK || PRO_GAMES.includes(id);
+export const proLocked = (s, id, now = Date.now()) => !!s?.monetized && isProFeature(id) && !roomPro(s, now) && !s.unlocks?.[id];
+export const radarAllowance = (r, id) => RADAR_USES + (r?.radarBonus?.[id] || 0);
+const busyNow = (s, id, now) => (s.busy?.[id] || 0) > now;
+
+function pruneBusy(s, now) {
+  const stale = Object.keys(s.busy || {}).filter((id) => !busyNow(s, id, now));
+  stale.forEach((id) => delete s.busy[id]);
+  return stale.length > 0;
 }
 
 const connected = (s) => s.players.filter((p) => p.connected);
@@ -285,12 +312,14 @@ function zoneTick(s, now) {
 
 const activePack = (s) => (s.settings.pack === 'halloween' && halloweenLive() ? 'halloween' : 'party');
 
-function chooseGame(s, count) {
+const roulettePool = (s, count, now) => gamesFor(s.settings.arena, count, activePack(s)).filter((g) => !proLocked(s, g.id, now));
+
+function chooseGame(s, count, now) {
   if (s.settings.mode === 'manual') {
     const g = GAMES[s.settings.game];
-    return g && count >= g.min && (!g.pack || halloweenLive()) ? g : null;
+    return g && count >= g.min && (!g.pack || halloweenLive()) && !proLocked(s, g.id, now) ? g : null;
   }
-  const pool = gamesFor(s.settings.arena, count, activePack(s));
+  const pool = roulettePool(s, count, now);
   if (!pool.length) return null;
   // Avoid repeating the last game when there is a choice.
   const fresh = pool.filter((g) => g.id !== s.lastGames[s.lastGames.length - 1]);
@@ -299,10 +328,10 @@ function chooseGame(s, count) {
 
 function startRound(s, now) {
   const ids = connected(s).map((p) => p.id);
-  const game = chooseGame(s, ids.length);
+  const game = chooseGame(s, ids.length, now);
   if (!game) return false;
 
-  const pool = s.settings.mode === 'random' ? gamesFor(s.settings.arena, ids.length, activePack(s)).map((g) => g.id) : [game.id];
+  const pool = s.settings.mode === 'random' ? roulettePool(s, ids.length, now).map((g) => g.id) : [game.id];
   const lead = s.settings.mode === 'manual' && s.settings.starter && ids.includes(s.settings.starter) ? s.settings.starter : pick(ids);
   const order = [lead, ...shuffle(ids.filter((id) => id !== lead))];
   // Timing (startsAt and everything hung off it) is set by armRound once everyone is ready.
@@ -438,12 +467,14 @@ function startRound(s, now) {
     strikes: {}, // violations per player this round
     noiseAt: {},
     ...(zoned && {
-      zone: { center: z.center, radius: z.radius, shrink: z.shrink, sim: z.sim, shrinkStart: null },
+      zone: { center: z.center, radius: z.radius, shrink: z.shrink && !proLocked(s, PRO_SHRINK, now), sim: z.sim, shrinkStart: null },
       hunt: !!HUNT[game.id],
       zoneOuts: {}, // id -> server time the 10 s countdown hits zero
       zoneRevealed: {}, // id -> when their live position went public
       xpAdj: {}, // radar costs, out-of-bounds penalties, supply drop bonus
       radarUses: {},
+      radarBonus: {}, // hunters who watched an ad for a free extra charge
+      radarExtra: {}, // purchased emergency pings fired this round
       radar: [], // public radar alerts (no positions)
       drop: null,
       dropAt: null,
@@ -453,6 +484,7 @@ function startRound(s, now) {
   s.results = null;
   s.phase = 'round';
   s.lastGames = [...s.lastGames, game.id].slice(-3);
+  s.unlocks = {}; // one-match ad unlocks are spent by this match
   return true;
 }
 
@@ -531,6 +563,8 @@ function maybeArm(s, now) {
   const r = s.round;
   if (s.phase !== 'round' || r?.stage !== 'brief') return;
   const here = r.participants.filter((id) => s.players.find((p) => p.id === id)?.connected);
+  // Never count down while someone is in an ad (their phone may even look disconnected).
+  if (r.participants.some((id) => busyNow(s, id, now))) return;
   if (here.length && here.every((id) => r.ready[id])) armRound(s, now);
 }
 
@@ -947,6 +981,8 @@ function finish(s, now, outcome) {
     evolved: before.stage !== after.stage || before.style !== after.style ? after : null,
     unlock: after.stage > 0 ? after.style : null,
   };
+  s.completedRounds = (s.completedRounds || 0) + 1;
+  s.bonus = { key: s.results.roundKey, deltas: { ...deltas }, who: [...r.participants], ids: {} };
   s.phase = 'results';
 }
 
@@ -995,6 +1031,7 @@ export function reduce(prev, actorId, a, now = Date.now()) {
       if (!p || p.isHost) return prev;
       if (s.phase === 'lobby') s.players = s.players.filter((x) => x.id !== a.id);
       else p.connected = false;
+      if (s.busy) delete s.busy[a.id];
       maybeArm(s, now);
       break;
     }
@@ -1002,6 +1039,7 @@ export function reduce(prev, actorId, a, now = Date.now()) {
       if (!isHost || a.id === s.hostId) return prev;
       s.players = s.players.filter((p) => p.id !== a.id);
       s.banned = [...new Set([...(s.banned || []), a.id])];
+      if (s.busy) delete s.busy[a.id];
       maybeArm(s, now);
       break;
     }
@@ -1043,18 +1081,25 @@ export function reduce(prev, actorId, a, now = Date.now()) {
     case 'ready': {
       if (s.phase !== 'round' || r.stage !== 'brief' || !isPlayer || now < r.revealAt - 500) return prev;
       if (a.on === false) delete r.ready[actorId];
-      else r.ready[actorId] = now;
+      else {
+        r.ready[actorId] = now;
+        if (s.busy?.[actorId]) delete s.busy[actorId]; // back from the ad, even if "done" got lost
+      }
       maybeArm(s, now);
       break;
     }
     case 'forceStart': {
-      if (!isHost || s.phase !== 'round' || r.stage !== 'brief') return prev;
+      if (!isHost || s.phase !== 'round' || r.stage !== 'brief' || r.participants.some((id) => busyNow(s, id, now))) return prev;
       armRound(s, now);
       break;
     }
 
     /* ---- shared ---- */
     case 'tick': {
+      if (pruneBusy(s, now)) {
+        maybeArm(s, now); // a phone that never came back from its ad stops holding the countdown
+        break;
+      }
       if (!r || s.phase !== 'round' || r.stage !== 'live') return prev;
       const zoneChanged = r.zone && now >= r.startsAt ? zoneTick(s, now) : false;
       const nextLava = r.game === 'floor_lava' ? s.secret.host.lavaTimes.find((t) => t > (r.data.lava?.at || 0)) : null;
@@ -1078,6 +1123,54 @@ export function reduce(prev, actorId, a, now = Date.now()) {
     case 'finishReview': {
       if (!isHost || s.phase !== 'review') return prev;
       finish(s, now, r.endReason || 'time');
+      break;
+    }
+
+    /* ---- Pro Pass, ad unlocks and sponsor breaks ---- */
+    case 'pro': {
+      if (!isHost) return prev;
+      const p = a.pro;
+      const next = p && (p.plan === 'lifetime' || p.plan === 'weekend') ? { plan: p.plan, until: p.plan === 'weekend' && Number.isFinite(p.until) ? p.until : null } : null;
+      if (JSON.stringify(next) === JSON.stringify(s.pro || null)) return prev;
+      s.pro = next;
+      break;
+    }
+    case 'unlock': {
+      if (!isHost || !(s.phase === 'lobby' || s.phase === 'results') || !Array.isArray(a.ids)) return prev;
+      const ids = a.ids.filter(isProFeature);
+      if (!ids.length) return prev;
+      s.unlocks = { ...s.unlocks };
+      ids.forEach((id) => (s.unlocks[id] = true));
+      break;
+    }
+    case 'busy': {
+      if (!find(actorId)) return prev;
+      s.busy = { ...s.busy };
+      if (a.on) s.busy[actorId] = now + BUSY_MS;
+      else if (s.busy[actorId]) {
+        delete s.busy[actorId];
+        maybeArm(s, now);
+      } else return prev;
+      break;
+    }
+    case 'boost': {
+      // Pre-round rewards, only while that player is still reading the briefing.
+      if (s.phase !== 'round' || r.stage !== 'brief' || !isPlayer || r.ready[actorId] || !r.hunt) return prev;
+      const hunter = myRole === HUNT[r.game].role;
+      if (a.kind === 'radar' && hunter && !r.radarBonus[actorId]) r.radarBonus[actorId] = 1;
+      else if (a.kind === 'ghost' && !hunter && !s.secret.host.ghost[actorId]) s.secret.host.ghost[actorId] = true; // hidden from the first radar ping
+      else return prev;
+      if (s.busy?.[actorId]) delete s.busy[actorId];
+      break;
+    }
+    case 'bonusXp': {
+      const b = s.bonus;
+      const p = find(actorId);
+      if (!b || b.key !== a.roundKey || !b.who.includes(actorId) || b.ids[actorId] != null || !p) return prev;
+      const amount = Math.max(0, b.deltas[actorId] || 0) + BONUS_XP;
+      b.ids[actorId] = amount;
+      p.xp += amount;
+      s.scores[p.username] = p.xp;
       break;
     }
 
@@ -1409,7 +1502,11 @@ export function reduce(prev, actorId, a, now = Date.now()) {
       if (!inPlay || !r.hunt || !isHunter(r, actorId) || now < (r.data.hideUntil || 0)) return prev;
       const h = s.secret.host;
       const used = r.radarUses[actorId] || 0;
-      if (used >= RADAR_USES || (h.scan && now < h.scan.until)) return prev;
+      const allowance = radarAllowance(r, actorId);
+      // Purchased emergency pings only fire once the round's own charges are spent.
+      const emergency = !!a.emergency && used >= allowance && (r.radarExtra?.[actorId] || 0) < EMERGENCY_RADAR_MAX;
+      if ((used >= allowance && !emergency) || (h.scan && now < h.scan.until)) return prev;
+      const free = emergency || used < (r.radarBonus?.[actorId] || 0); // ad bonus and emergency pings cost no XP
       const id = rid();
       const blips = [];
       const decoys = [];
@@ -1426,18 +1523,19 @@ export function reduce(prev, actorId, a, now = Date.now()) {
         blips.push(fakeBlip(s, hid, now));
       });
       r.radarUses[actorId] = used + 1;
-      r.xpAdj[actorId] = (r.xpAdj[actorId] || 0) + XP.radarPing;
+      if (emergency) r.radarExtra = { ...r.radarExtra, [actorId]: (r.radarExtra?.[actorId] || 0) + 1 };
+      if (!free) r.xpAdj[actorId] = (r.xpAdj[actorId] || 0) + XP.radarPing;
       r.radar.push({ id, by: actorId, at: now, until: now + RADAR_MS });
       h.scan = { id, kind: 'radar', by: actorId, at: now, until: now + RADAR_MS, blips: shuffle(blips) };
       const me = h.pos[actorId];
-      h.radarLog.push({ id, by: actorId, at: now, lat: me?.lat ?? null, lng: me?.lng ?? null, seen: blips.length - decoys.length, decoys });
+      h.radarLog.push({ id, by: actorId, at: now, lat: me?.lat ?? null, lng: me?.lng ?? null, seen: blips.length - decoys.length, decoys, ...(free && { free: true }) });
       break;
     }
     case 'decoy': {
       if (!inPlay || !r.hunt || !remainingHiders(r).includes(actorId)) return prev;
       const h = s.secret.host;
       if (h.decoys[actorId]) return prev;
-      const pingsLeft = r.participants.some((id) => isHunter(r, id) && (r.radarUses[id] || 0) < RADAR_USES);
+      const pingsLeft = r.participants.some((id) => isHunter(r, id) && (r.radarUses[id] || 0) < radarAllowance(r, id));
       if (pingsLeft || (h.scan && now < h.scan.until)) h.decoys[actorId] = 'armed';
       else {
         // No radar left to ride on: the fake signal goes straight to the hunters' map.

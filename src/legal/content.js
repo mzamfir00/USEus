@@ -2,15 +2,16 @@
 // native app (mobile/). Platform differences (storage, transport, geocoding) are spelled out
 // so each build describes exactly what it does.
 
-export const LEGAL_UPDATED = 'October 25, 2026';
+export const LEGAL_UPDATED = 'October 26, 2026';
 
 export function legalDocuments({ supportEmail = null, native = false } = {}) {
   const contact = supportEmail ? `email ${supportEmail}` : 'use the support contact listed on the USEus store page';
 
   const PRIVACY = {
     title: 'Privacy Policy',
-    intro:
-      'USEus is an in-person party game: every player uses their own phone as a controller and camera. This policy explains what the app collects, why, who can see it, and how to delete it. USEus has no ads, no analytics or tracking SDKs, and never sells personal data.',
+    intro: native
+      ? 'USEus is an in-person party game: every player uses their own phone as a controller and camera. This policy explains what the app collects, why, who can see it, and how to delete it. The phone apps show ads from Google AdMob (never during play) and sell optional passes through Google Play and the App Store. USEus has no analytics SDKs and never sells personal data.'
+      : 'USEus is an in-person party game: every player uses their own phone as a controller and camera. This policy explains what the app collects, why, who can see it, and how to delete it. USEus has no ads, no analytics or tracking SDKs, and never sells personal data.',
     sections: [
       {
         h: 'Your account',
@@ -49,6 +50,23 @@ export function legalDocuments({ supportEmail = null, native = false } = {}) {
         h: 'Motion sensors',
         p: ['Accelerometer, gyroscope and compass readings are used on your phone only (Red Light, the Weeping Statue, Floor Is Lava, the Playzone compass).'],
       },
+      ...(native
+        ? [
+            {
+              h: 'Ads (Google AdMob)',
+              p: [
+                'The app shows rewarded videos you choose to watch (to unlock a game for one match, a pre-round boost or bonus XP) and an occasional ad between rounds. Ads never appear during a countdown or live play. Rooms hosted with a Pro Pass are ad-free.',
+                'To show and measure ads, Google may use your device’s advertising ID, IP address, device and app information, and how you interact with ads. In the EEA, the UK and some US states, Google’s consent form asks before ads are personalised; Profile → Ad privacy choices changes your answer. Google’s use of data is described at policies.google.com/technologies/ads.',
+              ],
+            },
+            {
+              h: 'Purchases (RevenueCat)',
+              p: [
+                'Passes are bought through Google Play or the App Store; we never see your payment details. RevenueCat processes the purchase records, linked to your USEus account ID, so a pass bought on one phone can be restored on another. Your profile stores which pass you have and when a Weekend Pass ends.',
+              ],
+            },
+          ]
+        : []),
       {
         h: 'Rooms, matches and reports',
         p: [
@@ -122,6 +140,17 @@ export function legalDocuments({ supportEmail = null, native = false } = {}) {
         h: 'Your account',
         p: ['Keep your PIN private. You can delete your account at any time from Profile → Delete Account Permanently. We may suspend accounts that break these terms.'],
       },
+      ...(native
+        ? [
+            {
+              h: 'Purchases',
+              p: [
+                'Passes are one-time purchases through Google Play or the App Store; nothing renews. The Weekend Pass lasts 48 hours from purchase. Pro Host Lifetime lasts as long as USEus offers the app. Radar Pack pings are used up as you play. Pro unlocks games for rooms you host; it has no cash value and can’t be transferred.',
+                'Refunds follow Google Play’s and Apple’s policies. Use Restore Purchases in the store or in Profile to bring passes back on a new phone signed in to the same USEus account.',
+              ],
+            },
+          ]
+        : []),
       {
         h: 'No warranty',
         p: [

@@ -1,10 +1,12 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, BackHandler, Modal, Pressable, Share, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, BackHandler, Modal, Pressable, Share, TouchableOpacity, useWindowDimensions, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useKeepAwake } from 'expo-keep-awake';
 import QRCode from 'react-native-qrcode-svg';
-import { Share2, X } from 'lucide-react-native';
-import { DNA_STYLES, dnaInfo } from '../../core';
+import { Share2, X, Zap } from 'lucide-react-native';
+import { DNA_STYLES, dnaInfo, roomPro } from '../../core';
+import { VIP_STYLE } from '../../config/monetization';
+import { activePro, openStore, setAdsAllowed, useMonetization } from '../../services/monetizationService';
 import { errorText } from '../../hooks/useRoom';
 import { inviteUrl } from '../../lib/platform';
 import { buzz, haptic, Synth } from '../../lib/sound';
@@ -13,6 +15,7 @@ import GameScreen, { ReviewScreen } from '../game/GameScreen';
 import Intro from '../game/Intro';
 import { useNow } from '../helpers';
 import { useBlocked } from '../Moderation';
+import { interstitialDue, useAdBreak } from '../monetization/useAdBreak';
 import { Button, Card, ConfirmModal, Divided, Eyebrow, Hazard, IconButton, LevelDots, Sheet, T, Title } from '../primitives';
 import Lobby from './Lobby';
 import Results from './Results';
@@ -181,6 +184,40 @@ export default function Room({ room, code, onLeave }) {
   const live = view && (status === 'live' || status === 'reconnecting');
   const roomCode = view?.code || code;
   const isHost = role === 'host';
+  const store = useMonetization();
+  const myPro = activePro(store.pro);
+  const vip = view?.pro?.plan === 'lifetime';
+  const ads = useAdBreak(view, intent);
+  const { width } = useWindowDimensions();
+  const compact = !!view?.monetized && width < 420; // header also holds the Pro Pass button
+
+  // The host's own Pro Pass covers the whole room.
+  useEffect(() => {
+    if (isHost && live && view.monetized) intent({ type: 'pro', pro: myPro });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isHost, live, myPro?.plan, myPro?.until]);
+
+  // No ad of any kind during the countdown or live play (camera, flashlight and mic in use).
+  const playing = !!live && view.phase === 'round' && view.round.stage === 'live';
+  useEffect(() => {
+    setAdsAllowed(!playing);
+  }, [playing]);
+  useEffect(() => () => setAdsAllowed(true), []);
+
+  // Guests see the post-round interstitial as the host moves on from the results screen
+  // (the host sees it on their own button). Their busy flag holds the next countdown.
+  const lastResults = useRef(null);
+  useEffect(() => {
+    if (!live) return;
+    if (view.phase === 'results') {
+      lastResults.current = { key: view.results?.roundKey, due: interstitialDue(view) };
+      return;
+    }
+    const prev = lastResults.current;
+    lastResults.current = null;
+    if (!isHost && prev?.due) ads.interstitial({ hold: view.phase === 'round' });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [live, view?.phase, view?.results?.roundKey]);
   const askLeave = () => (live ? setLeaving(true) : onLeave());
 
   // Android back / swipe-back never drops you out of a room by accident: it asks first.
@@ -230,24 +267,37 @@ export default function Room({ room, code, onLeave }) {
   return (
     <SafeAreaView style={{ flex: 1 }} edges={['top']} testID="room">
       <View style={{ paddingHorizontal: 24, paddingBottom: 12, paddingTop: 6 }}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
           <IconButton icon={X} label="Leave room" onPress={askLeave} testID="leave-room" />
-          <View style={{ flex: 1, alignItems: 'center' }}>
-            <T size={15} w={600}>
-              {roomCode ? `Room ${roomCode}` : 'Room'}
+          <View style={{ flex: 1, alignItems: 'center', minWidth: 0 }}>
+            <T size={15} w={600} numberOfLines={1}>
+              {roomCode ? (compact ? `#${roomCode}` : `Room ${roomCode}`) : 'Room'}
             </T>
-            <T muted size={12} testID="room-connection">
+            <T muted size={12} numberOfLines={1} testID="room-connection">
               {status === 'live' ? (isHost ? 'You’re hosting' : 'Connected') : status === 'reconnecting' ? 'Reconnecting…' : ' '}
             </T>
           </View>
+          {live && view.monetized ? (
+            <TouchableOpacity
+              onPress={openStore}
+              accessibilityLabel="Pro Pass"
+              testID="pro-pass-header"
+              style={{ height: 40, paddingHorizontal: 10, borderRadius: 999, borderWidth: 1, borderColor: roomPro(view) ? t.c.fg : t.c.border, backgroundColor: roomPro(view) ? t.c.fg : t.c.card, flexDirection: 'row', alignItems: 'center', gap: 4 }}
+            >
+              <Zap size={14} color={roomPro(view) ? t.c.bg : t.c.fg} fill={roomPro(view) ? t.c.bg : 'transparent'} />
+              <T size={11.5} w={800} ls={0.5} color={roomPro(view) ? t.c.bg : t.c.fg}>
+                {roomPro(view) ? 'PRO' : 'PRO PASS'}
+              </T>
+            </TouchableOpacity>
+          ) : null}
           {live ? (
             <TouchableOpacity
               onPress={() => setSheet('dna')}
               accessibilityLabel="Room DNA"
-              style={{ height: 40, paddingHorizontal: 12, borderRadius: 999, borderWidth: 1, borderColor: t.c.border, backgroundColor: t.c.card, flexDirection: 'row', alignItems: 'center', gap: 6 }}
+              style={{ height: 40, paddingHorizontal: compact ? 10 : 12, borderRadius: 999, borderWidth: 1, borderColor: t.c.border, backgroundColor: t.c.card, flexDirection: 'row', alignItems: 'center', gap: compact ? 4 : 6 }}
             >
-              <LevelDots stage={info.stage} />
-              <T size={13}>{DNA_STYLES[info.style].short}</T>
+              <LevelDots stage={vip ? 3 : info.stage} />
+              <T size={13}>{vip ? VIP_STYLE.short : DNA_STYLES[info.style].short}</T>
             </TouchableOpacity>
           ) : (
             <View style={{ width: 40 }} />

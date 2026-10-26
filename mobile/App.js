@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Linking, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
@@ -9,7 +9,9 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Clock, PlayIcon, User, Users } from 'lucide-react-native';
 import { dnaInfo } from './src/core';
 import { useRoom } from './src/hooks/useRoom';
-import { PREFS, currentAccount, getPref, hydrate, refreshAccount, retryPendingDeletions, setPref, signOut } from './src/lib/database';
+import { RADAR_PACK_XP } from './src/config/monetization';
+import { PREFS, currentAccount, getPref, grantXp, hydrate, refreshAccount, retryPendingDeletions, setPref, signOut, syncPro } from './src/lib/database';
+import { activePro, identify, initAds, initPurchases, useMonetization } from './src/services/monetizationService';
 import { codeFromInvite } from './src/lib/platform';
 import { Synth } from './src/lib/sound';
 import { FONT_FILES, ThemeContext, inter, makeTheme } from './src/theme';
@@ -19,6 +21,8 @@ import SafetyGate, { acceptSafety, safetyAccepted } from './src/ui/Safety';
 import { BgFx } from './src/ui/primitives';
 import Room from './src/ui/room/Room';
 import ErrorBoundary from './src/ui/ErrorBoundary';
+import ProStoreHost from './src/ui/monetization/ProStore';
+import SponsorBreakHost from './src/ui/monetization/SponsorBreak';
 import { purgeCameraCache } from './src/lib/clips';
 import History from './src/ui/tabs/History';
 import Play from './src/ui/tabs/Play';
@@ -40,6 +44,9 @@ function Main() {
   const [safetyTerms, setSafetyTerms] = useState(false);
   const [notice, setNotice] = useState('');
   const room = useRoom(account, setAccount);
+  const store = useMonetization();
+  const accountRef = useRef(account);
+  accountRef.current = account;
 
   useEffect(() => {
     Synth.setMuted(!sound);
@@ -52,8 +59,27 @@ function Main() {
 
   useEffect(() => {
     if (account) refreshAccount(account).then((a) => a && setAccount(a));
+    identify(account?.id || null); // purchases follow the USEus account
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [account?.id]);
+
+  // Ads start once the player is past the safety warning and signed in (consent form first).
+  useEffect(() => {
+    if (account && !safety) initAds();
+  }, [account, safety]);
+
+  // Mirror the Pro Pass onto the profile, and grant each Radar Pack's XP boost once.
+  const pro = activePro(store.pro);
+  useEffect(() => {
+    if (!account || !store.proLoaded) return;
+    syncPro(account, pro).then((a) => a && accountRef.current?.id === a.id && setAccount(a));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [account?.id, store.proLoaded, pro?.plan, pro?.until]);
+  useEffect(() => {
+    if (!account) return;
+    store.radarTx.forEach((tx) => grantXp(account.id, `radar:${tx}`, RADAR_PACK_XP).then((a) => a && accountRef.current?.id === a.id && setAccount(a)));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [account?.id, store.radarTx]);
 
   // useus://join?room=1234 (and invite links handed to the app) join as soon as signed in.
   useEffect(() => {
@@ -104,7 +130,10 @@ function Main() {
   // Inside a room the Room DNA drives the look; elsewhere the player's chosen aesthetic.
   let style = 'none';
   let stage = 0;
-  if (inRoom && room.view) {
+  if (inRoom && room.view?.pro?.plan === 'lifetime') {
+    style = 'vip'; // a lifetime Pro host's rooms wear the exclusive Monochrome VIP look
+    stage = 3;
+  } else if (inRoom && room.view) {
     const info = dnaInfo(room.view.dna);
     style = info.style;
     stage = info.stage;
@@ -202,6 +231,8 @@ function Main() {
             {safetyTerms && <LegalSheet doc="terms" onClose={() => setSafetyTerms(false)} />}
           </SafetyGate>
         )}
+        {account && <ProStoreHost />}
+        <SponsorBreakHost />
       </View>
     </ThemeContext.Provider>
   );
@@ -218,6 +249,7 @@ export default function App() {
     hydrate().finally(() => {
       setHydrated(true);
       retryPendingDeletions();
+      initPurchases(currentAccount()?.id); // RevenueCat: restores the player's passes
     });
   }, []);
 

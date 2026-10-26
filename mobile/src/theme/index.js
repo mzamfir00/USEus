@@ -4,6 +4,8 @@
 //   auteur  — serif titles · film perforations on cards · warm silver palette + grain
 //   dossier — monospace eyebrow labels · radar grid · dashed case-file cards + scanline
 //   kinetic — hazard line · hard offset shadows · heavy uppercase stamped titles
+// The lifetime Pro Host pass adds an exclusive fourth look, always at full strength:
+//   vip     — deeper black cards · silver hairlines · stamped capitals · mono labels
 import { createContext, useContext } from 'react';
 
 export const FONT_FILES = {
@@ -44,10 +46,13 @@ export function makeTheme(style = 'none', stage = 0) {
   const c = { ...BASE };
   if (on('auteur', 3)) Object.assign(c, { fg: '#f6f2ea', card: '#15130f', border: '#2b2822' });
   if (on('dossier', 3)) c.border = '#3a3a3a';
+  const vip = style === 'vip';
+  if (vip) Object.assign(c, { card: '#0a0a0a', cardPress: '#151515', border: '#5c5c5c', muted: '#a6a6a6' });
   let title = { fontFamily: inter(700), letterSpacing: -1 };
   if (on('auteur', 1)) title = { fontFamily: SERIF, letterSpacing: -0.3 };
   if (on('kinetic', 3)) title = { fontFamily: HEAVY, letterSpacing: -0.6, textTransform: 'uppercase' };
-  const eyebrow = on('dossier', 1)
+  if (vip) title = { fontFamily: inter(800), letterSpacing: 0.6, textTransform: 'uppercase' };
+  const eyebrow = on('dossier', 1) || vip
     ? { fontFamily: MONO, fontSize: 11.5, letterSpacing: 0.9, textTransform: 'uppercase' }
     : { fontFamily: inter(500), fontSize: 13 };
   return {
@@ -63,6 +68,7 @@ export function makeTheme(style = 'none', stage = 0) {
     dashed: on('dossier', 3),
     hazard: on('kinetic', 1),
     hardShadow: on('kinetic', 2),
+    vip,
   };
 }
 

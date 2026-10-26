@@ -74,6 +74,9 @@ create table if not exists public.mission_logs (
 alter table public.mission_logs add column if not exists game text;
 alter table public.mission_logs add column if not exists location text;
 alter table public.mission_logs alter column mission_id drop not null;
+-- Pro Pass mirrored from RevenueCat by the native app (RevenueCat stays the source of truth).
+alter table public.accounts add column if not exists pro_plan text;
+alter table public.accounts add column if not exists pro_until timestamptz;
 
 create table if not exists public.reports (
   id bigserial primary key,
@@ -125,7 +128,7 @@ alter table public.reports enable row level security;
 
 revoke all on public.accounts from anon, authenticated;
 grant select (id, username, name, xp, missions_completed, secret_wins, rounds_played,
-              chickened, aesthetics, theme, created_at)
+              chickened, aesthetics, theme, pro_plan, created_at)
   on public.accounts to anon, authenticated;
 grant insert, update on public.accounts to anon, authenticated;
 grant select, insert on public.friendships to anon, authenticated;

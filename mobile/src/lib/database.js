@@ -21,6 +21,7 @@ const KEYS = {
   rooms: `${NS}rooms`, // code -> room record (hosted)
   visited: `${NS}visited`, // code -> { dna, at } rooms joined as a guest
   applied: `${NS}applied`, // round keys already counted
+  grants: `${NS}xpGrants`, // bonus XP already granted (2x XP claims, Radar Packs)
   logs: `${NS}missionLogs`,
   cloud: `${NS}cloud`,
   blocked: `${NS}blocked`, // username -> { id, name, at } hidden on this device
@@ -485,6 +486,45 @@ export async function applyRoundStats(accountId, roundKey, delta, entry, unlock)
   const aesthetics = unlock && !account.aesthetics.includes(unlock) ? [...account.aesthetics, unlock] : account.aesthetics;
   const saved = saveLocal({ ...account, stats, aesthetics, history: [entry, ...(account.history || [])].slice(0, 50) });
   await pushAccount(saved);
+  return saved;
+}
+
+// Adds bonus XP (post-round 2x XP claim, Radar Pack boost) exactly once per key.
+export async function grantXp(accountId, key, amount) {
+  const granted = read(KEYS.grants, []);
+  const id = `${accountId}|${key}`;
+  if (granted.includes(id) || !(amount > 0)) return null;
+  write(KEYS.grants, [...granted, id].slice(-2000));
+  const account = accounts()[accountId];
+  if (!account) return null;
+  const stats = { ...emptyStats(), ...account.stats };
+  stats.xp += amount;
+  const saved = saveLocal({ ...account, stats });
+  await pushAccount(saved);
+  return saved;
+}
+
+// Mirrors the player's Pro Pass onto their profile (RevenueCat stays the source of truth).
+// The lifetime pass also unlocks the Monochrome VIP aesthetic.
+export async function syncPro(account, pro) {
+  const plan = pro?.plan || null;
+  const until = pro?.until ? new Date(pro.until).toISOString() : null;
+  const current = accounts()[account.id] || account;
+  const vip = plan === 'lifetime' && !current.aesthetics.includes('vip');
+  if ((current.pro?.plan || null) === plan && (current.pro?.until || null) === until && !vip) return null;
+  const saved = saveLocal({
+    ...current,
+    pro: plan ? { plan, until } : null,
+    aesthetics: vip ? [...current.aesthetics, 'vip'] : current.aesthetics,
+    theme: !plan && current.theme === 'vip' ? 'none' : current.theme,
+  });
+  await pushAccount(saved);
+  // Separate write: projects that haven't re-run supabase/schema.sql lack these columns, and
+  // that must never block the stats sync above.
+  await cloud(async (sb) => {
+    const { error } = await sb.from('accounts').update({ pro_plan: plan, pro_until: until }).eq('id', account.id);
+    if (error) console.warn('[database] pro status not synced (re-run supabase/schema.sql)', error.message);
+  });
   return saved;
 }
 

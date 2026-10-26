@@ -10,7 +10,7 @@ import Svg, { Path } from 'react-native-svg';
 import { ArrowUp, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Crosshair, Ghost, HeartPulse, MapIcon, Radar, Satellite, TriangleAlert, X, Zap } from 'lucide-react-native';
 import {
   DROP_RADIUS,
-  RADAR_USES,
+  EMERGENCY_RADAR_MAX,
   XP,
   bearing,
   cardinal,
@@ -19,12 +19,14 @@ import {
   haversine,
   isHunter,
   nextShrinkAt,
+  radarAllowance,
   remainingHiders,
   shrinkStep,
   zoneRadius,
 } from '../../../core';
 import { currentHeading, startHeading, stopHeading } from '../../../lib/motion';
 import { prompt } from '../../../lib/permissions';
+import { consumeRadarPing, radarLeft as packPings, useMonetization } from '../../../services/monetizationService';
 import { buzz, haptic, Synth } from '../../../lib/sound';
 import { T } from '../../primitives';
 import { formatTime, useLater, useNow } from '../../helpers';
@@ -456,8 +458,20 @@ export default function ZoneLayer({ view, serverNow, intent, onStrobe, onRows, c
     return () => clearInterval(id);
   }, [hb]);
 
+  /* ---- purchased emergency pings: spent once the host confirms each one ---- */
+  const store = useMonetization();
+  const extraUsed = r.radarExtra?.[me] || 0;
+  const seenExtra = useRef(extraUsed);
+  useEffect(() => {
+    if (extraUsed > seenExtra.current) consumeRadarPing();
+    seenExtra.current = extraUsed;
+  }, [extraUsed]);
+
   /* --------------------------------- render -------------------------------- */
-  const radarLeft = RADAR_USES - (r.radarUses?.[me] || 0);
+  const allowance = radarAllowance(r, me);
+  const radarLeft = allowance - (r.radarUses?.[me] || 0);
+  const emergency = radarLeft <= 0 && !!view.monetized && packPings(store) > 0 && extraUsed < EMERGENCY_RADAR_MAX;
+  const freePing = (r.radarUses?.[me] || 0) < (r.radarBonus?.[me] || 0);
   const armsAt = r.data.hideUntil || 0;
   const radarArming = now < armsAt;
   const nextShrink = nextShrinkAt(zone, now);
@@ -485,7 +499,7 @@ export default function ZoneLayer({ view, serverNow, intent, onStrobe, onRows, c
         : `ZONE ${Math.round(radius)} m · ${formatDistance(-toEdge)} OUTSIDE`;
   const sub = zone.shrink ? (nextShrink ? `Ring closes in ${formatTime(nextShrink - now)}` : 'Ring fully closed') : zone.sim ? 'Simulated GPS' : fix ? `GPS ±${fix.acc} m` : 'Playzone';
   const out = !!(outDeadline || revealed);
-  const disabledRadar = radarLeft <= 0 || radarArming || !!scan;
+  const disabledRadar = (radarLeft <= 0 && !emergency) || radarArming || !!scan;
 
   return (
     <>
@@ -544,7 +558,7 @@ export default function ZoneLayer({ view, serverNow, intent, onStrobe, onRows, c
             accessibilityLabel={`radar ${radarLeft} left`}
             onPress={() => {
               Synth.unlock();
-              intent({ type: 'uavRadar' });
+              intent({ type: 'uavRadar', ...(radarLeft <= 0 && { emergency: true }) });
             }}
             style={{
               height: 44,
@@ -560,7 +574,13 @@ export default function ZoneLayer({ view, serverNow, intent, onStrobe, onRows, c
           >
             <Radar size={16} color={disabledRadar ? 'rgba(255,255,255,0.5)' : '#000'} />
             <T size={12.5} w={700} ls={0.4} color={disabledRadar ? 'rgba(255,255,255,0.5)' : '#000'}>
-              {radarLeft <= 0 ? `RADAR LOCKED (0/${RADAR_USES})` : radarArming ? `RADAR ARMS IN ${formatTime(armsAt - now)}` : `RADAR PING (${radarLeft}/${RADAR_USES} LEFT • ${XP.radarPing} XP)`}
+              {radarArming
+                ? `RADAR ARMS IN ${formatTime(armsAt - now)}`
+                : emergency
+                  ? `EMERGENCY PING (${packPings(store)} LEFT • FREE)`
+                  : radarLeft <= 0
+                    ? `RADAR LOCKED (0/${allowance})`
+                    : `RADAR PING (${radarLeft}/${allowance} LEFT • ${freePing ? 'FREE' : `${XP.radarPing} XP`})`}
             </T>
           </TouchableOpacity>
         )}

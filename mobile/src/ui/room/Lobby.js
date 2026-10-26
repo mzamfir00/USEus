@@ -3,11 +3,13 @@ import { ScrollView, TouchableOpacity, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Location from 'expo-location';
-import { Building2, Car, Check, Crosshair, Dices, Ellipsis, Flame, House, LocateFixed, ShoppingCart, Sparkles, Target, TreePine, Trees, X } from 'lucide-react-native';
-import { ARENAS, GAMES, HALLOWEEN, HUNT, ZONE_ARENAS, ZONE_RADII, gamesFor, halloweenLive, packOf } from '../../core';
+import { Building2, Car, Check, Crosshair, Dices, Ellipsis, Flame, House, LocateFixed, ShoppingCart, Sparkles, Target, TreePine, Trees, X, Zap } from 'lucide-react-native';
+import { ARENAS, GAMES, HALLOWEEN, HUNT, PRO_SHRINK, ZONE_ARENAS, ZONE_RADII, gamesFor, halloweenLive, isProFeature, packOf, proLocked, roomPro } from '../../core';
 import { useTheme } from '../../theme';
 import HorrorFx, { Breathe, HorrorTitle, Vhs } from '../game/HorrorFx';
 import TacticalMap from '../game/zone/TacticalMap';
+import ProGate from '../monetization/ProGate';
+import { useAdBreak } from '../monetization/useAdBreak';
 import { PlayerActions } from '../Moderation';
 import { Avatar, Button, Card, Divided, Eyebrow, Field, LiveDot, Pill, SectionLabel, Segmented, Switch, T } from '../primitives';
 
@@ -40,8 +42,22 @@ function Toggle({ label, sub, on, disabled, onChange }) {
   );
 }
 
+// "⚡ PRO" on Pro games and features; "UNLOCKED" once the host's Pass or an ad covers it.
+function ProBadge({ open, inverted }) {
+  const t = useTheme();
+  const fg = inverted ? t.c.bg : t.c.fg;
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3, alignSelf: 'flex-start', borderRadius: 999, borderWidth: 1, borderColor: fg, paddingHorizontal: 7, paddingVertical: 2, opacity: open ? 0.6 : 1 }}>
+      <Zap size={10} color={fg} fill={open ? 'transparent' : fg} />
+      <T size={10} w={800} ls={0.8} color={fg}>
+        {open ? 'UNLOCKED' : 'PRO'}
+      </T>
+    </View>
+  );
+}
+
 // GPS Playzone: lock the arena centre with one tap, pick a radius, optional closing ring.
-function ZoneSetup({ st, isHost, set }) {
+function ZoneSetup({ st, isHost, set, shrinkLocked, onShrinkLocked }) {
   const t = useTheme();
   const z = st.zone;
   const [locking, setLocking] = useState(false);
@@ -119,7 +135,13 @@ function ZoneSetup({ st, isHost, set }) {
             </View>
             <View style={{ marginTop: 4 }}>
               <Divided>
-                <Toggle label="Shrinking battle-royale ring" sub="Final 3 minutes: the zone shrinks 20% every 45 s." on={z.shrink} disabled={!isHost} onChange={(v) => set({ zone: { shrink: v } })} />
+                <Toggle
+                  label={shrinkLocked ? 'Shrinking battle-royale ring · PRO' : 'Shrinking battle-royale ring'}
+                  sub={shrinkLocked ? 'Pro or a short ad: the final 3 minutes shrink the zone 20% every 45 s.' : 'Final 3 minutes: the zone shrinks 20% every 45 s.'}
+                  on={z.shrink && !shrinkLocked}
+                  disabled={!isHost}
+                  onChange={(v) => (v && shrinkLocked ? onShrinkLocked() : set({ zone: { shrink: v } }))}
+                />
                 <Toggle label="Simulated GPS" sub="Indoor testing: phones move with an on-screen pad instead of real GPS." on={z.sim} disabled={!isHost} onChange={(v) => set({ zone: { sim: v } })} />
               </Divided>
             </View>
@@ -165,7 +187,14 @@ export default function Lobby({ view, intent, onInvite }) {
   const [locating, setLocating] = useState(false);
   const seasonal = halloweenLive();
   const pack = st.pack === 'halloween' && seasonal ? 'halloween' : 'party';
-  const fits = gamesFor(st.arena, online.length, pack);
+  const now = Date.now();
+  const locked = (id) => proLocked(view, id, now);
+  const fitAll = gamesFor(st.arena, online.length, pack);
+  const fits = fitAll.filter((g) => !locked(g.id));
+  const lockedFits = fitAll.filter((g) => locked(g.id));
+  const [gate, setGate] = useState(null); // Pro game / feature the host tapped
+  const ads = useAdBreak(view, intent);
+  const gateFor = (game) => ({ title: game.name, what: game.name, ids: [game.id], after: () => set({ game: game.id, starter: null }) });
   // A room saved by another app version may name a game this build doesn't know.
   const chosen = GAMES[st.game] || Object.values(GAMES).find((g) => packOf(g) === pack) || Object.values(GAMES)[0];
   const packGames = Object.values(GAMES).filter((g) => packOf(g) === pack);
@@ -177,6 +206,7 @@ export default function Lobby({ view, intent, onInvite }) {
   };
   const zoneArena = ZONE_ARENAS.includes(st.arena) && !!st.zone;
   const needsCenter = zoneArena && st.zone.on && !st.zone.center;
+  const chosenLocked = st.mode === 'manual' && locked(chosen.id);
   const canStart = (st.mode === 'random' ? fits.length > 0 : online.length >= chosen.min) && !needsCenter;
 
   useEffect(() => setLocation(st.location), [st.location]);
@@ -291,7 +321,15 @@ export default function Lobby({ view, intent, onInvite }) {
           )}
         </View>
 
-        {zoneArena && <ZoneSetup st={st} isHost={isHost} set={set} />}
+        {zoneArena && (
+          <ZoneSetup
+            st={st}
+            isHost={isHost}
+            set={set}
+            shrinkLocked={locked(PRO_SHRINK)}
+            onShrinkLocked={() => setGate({ title: 'Battle-royale ring', what: 'the shrinking ring', ids: [PRO_SHRINK], after: () => set({ zone: { shrink: true } }) })}
+          />
+        )}
 
         <SectionLabel>Game</SectionLabel>
         <View pointerEvents={isHost ? 'auto' : 'none'} style={{ opacity: isHost ? 1 : 0.7 }}>
@@ -351,6 +389,30 @@ export default function Lobby({ view, intent, onInvite }) {
             <T muted size={13.5} lh={1.35} style={{ marginTop: 4 }}>
               {fits.map((g) => g.name).join(' · ')}
             </T>
+            {lockedFits.length > 0 && (
+              <View style={{ marginTop: 12, borderTopWidth: 1, borderTopColor: t.c.border, paddingTop: 12 }} testID="roulette-locked">
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  <ProBadge />
+                  <T size={13.5} w={600} style={{ flex: 1 }}>
+                    +{lockedFits.length} Pro {lockedFits.length === 1 ? 'game' : 'games'} off the wheel
+                  </T>
+                </View>
+                <T muted size={12.5} lh={1.35} style={{ marginTop: 4 }}>
+                  {lockedFits.map((g) => g.name).join(' · ')}
+                </T>
+                {isHost && (
+                  <Button
+                    small
+                    variant="secondary"
+                    icon={Zap}
+                    title="Add them to this spin"
+                    style={{ marginTop: 12 }}
+                    onPress={() => setGate({ title: 'Pro roulette', what: `${lockedFits.length} Pro ${lockedFits.length === 1 ? 'game' : 'games'}`, ids: lockedFits.map((g) => g.id) })}
+                    testID="unlock-roulette"
+                  />
+                )}
+              </View>
+            )}
           </Card>
         ) : (
           <>
@@ -358,6 +420,7 @@ export default function Lobby({ view, intent, onInvite }) {
               <Divided>
                 {packGames.map((g) => {
                   const on = st.game === g.id;
+                  const isLocked = locked(g.id);
                   const enough = online.length >= g.min;
                   const fit = g.arenas.includes(st.arena);
                   const fg = on ? t.c.bg : t.c.fg;
@@ -366,11 +429,17 @@ export default function Lobby({ view, intent, onInvite }) {
                       key={g.id}
                       disabled={!isHost}
                       activeOpacity={0.7}
-                      onPress={() => set({ game: g.id, starter: null })}
+                      onPress={() => (isLocked ? setGate(gateFor(g)) : set({ game: g.id, starter: null }))}
                       testID={`game-${g.id}`}
+                      accessibilityLabel={isLocked ? `${g.name}, Pro` : g.name}
                       style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 12, paddingHorizontal: 16, paddingVertical: 14, backgroundColor: on ? t.c.fg : 'transparent' }}
                     >
                       <View style={{ flex: 1 }}>
+                        {view.monetized && isProFeature(g.id) ? (
+                          <View style={{ marginBottom: 6 }}>
+                            <ProBadge open={!isLocked} inverted={on} />
+                          </View>
+                        ) : null}
                         <T size={15.5} w={600} color={fg}>
                           {g.name}
                         </T>
@@ -403,6 +472,8 @@ export default function Lobby({ view, intent, onInvite }) {
         )}
       </ScrollView>
 
+      <ProGate gate={isHost && !roomPro(view) ? gate : null} onWatch={ads.unlock} onClose={() => setGate(null)} />
+
       {actions && (
         <PlayerActions
           player={actions}
@@ -416,10 +487,10 @@ export default function Lobby({ view, intent, onInvite }) {
       <LinearGradient colors={['transparent', t.c.bg, t.c.bg]} locations={[0, 0.35, 1]} style={{ position: 'absolute', left: 0, right: 0, bottom: 0, paddingTop: 40, paddingHorizontal: 24, paddingBottom: 20 + insets.bottom }}>
         {isHost ? (
           <Button
-            title={needsCenter ? 'Lock the arena center first' : st.mode === 'random' ? 'Spin the wheel' : `Start ${chosen.name}`}
-            icon={st.mode === 'random' ? Dices : Target}
+            title={needsCenter ? 'Lock the arena center first' : st.mode === 'random' ? 'Spin the wheel' : chosenLocked ? `Unlock ${chosen.name}` : `Start ${chosen.name}`}
+            icon={st.mode === 'random' ? Dices : chosenLocked ? Zap : Target}
             disabled={!canStart || online.length < 2}
-            onPress={() => intent({ type: 'start' })}
+            onPress={() => (chosenLocked ? setGate({ ...gateFor(chosen), after: null }) : intent({ type: 'start' }))}
             testID="start"
           />
         ) : (

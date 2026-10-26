@@ -4,11 +4,12 @@ import React, { useEffect, useState } from 'react';
 import { ScrollView, TouchableOpacity, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Check, ChevronDown, Footprints, MapPin, Radar, Siren, Smartphone, Users, VenetianMask } from 'lucide-react-native';
-import { briefingFor } from '../../core';
+import { Check, ChevronDown, Footprints, Ghost, MapPin, Radar, Siren, Smartphone, Users, VenetianMask } from 'lucide-react-native';
+import { HUNT, briefingFor, radarAllowance } from '../../core';
 import { requestMotion, useMotionMode } from '../../lib/motion';
 import { buzz, Synth } from '../../lib/sound';
 import { useTheme } from '../../theme';
+import { useAdBreak } from '../monetization/useAdBreak';
 import { Avatar, Button, Card, Divided, Eyebrow, T, Title } from '../primitives';
 import SafetyGate from '../Safety';
 import HorrorFx, { HorrorTitle } from './HorrorFx';
@@ -219,6 +220,75 @@ function ReadyBar({ view, intent }) {
   );
 }
 
+// GPS hunts: the hunter can take a free extra radar charge, hiders a Ghost Shield that hides
+// them from the first radar ping, each for a short rewarded ad (free with Pro). Offered only
+// while that player is still reading the briefing, so an ad never overlaps the countdown.
+function Boost({ view, intent }) {
+  const t = useTheme();
+  const r = view.round;
+  const ads = useAdBreak(view, intent);
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState('');
+  const me = view.me;
+  const hunter = r.roles[me] === HUNT[r.game]?.role;
+  const claimed = hunter ? !!r.radarBonus?.[me] : !!view.intel?.ghost;
+  const kind = hunter ? 'radar' : 'ghost';
+  const allowance = radarAllowance(r, me);
+
+  const claim = async () => {
+    setBusy(true);
+    setNote('');
+    const ok = await ads.rewarded(hunter ? 'Unlocking +1 bonus radar charge' : 'Activating your Ghost Shield', { hold: true });
+    if (ok) {
+      const has = (v) => (hunter ? !!v?.round?.radarBonus?.[me] : !!v?.intel?.ghost);
+      if (!(await ads.confirm({ type: 'boost', kind }, has))) setNote('The room didn’t answer. Check your connection.');
+    } else setNote(ok === null ? 'Connection is slow — try again in a moment.' : 'No reward: the ad was skipped.');
+    setBusy(false);
+  };
+
+  const pro = ads.free ? ' · Pro perk' : '';
+  const title = hunter ? `📡 +1 BONUS RADAR CHARGE ${ads.free ? '· PRO PERK' : '(WATCH AD)'}` : `👻 ACTIVATE GHOST SHIELD ${ads.free ? '· PRO PERK' : '(WATCH AD)'}`;
+  return (
+    <View style={{ marginTop: 20 }} testID="boost">
+      {claimed ? (
+        <View style={{ borderRadius: 18, backgroundColor: t.c.fg, paddingHorizontal: 16, paddingVertical: 14 }} testID={`boost-${kind}-on`}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            {hunter ? <Radar size={15} color={t.c.bg} /> : <Ghost size={15} color={t.c.bg} />}
+            <T size={13} w={800} ls={0.4} color={t.c.bg}>
+              {hunter ? `BONUS CHARGE READY · RADAR ${allowance}/${allowance}` : 'GHOST SHIELD ACTIVE'}
+            </T>
+          </View>
+          <T size={12.5} lh={1.35} color={t.c.bg} style={{ marginTop: 2, opacity: 0.7 }}>
+            {hunter ? 'Your extra ping costs no XP.' : 'The hunter’s first radar ping won’t show you.'}
+          </T>
+        </View>
+      ) : (
+        <TouchableOpacity
+          disabled={busy}
+          onPress={claim}
+          activeOpacity={0.85}
+          accessibilityRole="button"
+          accessibilityLabel={title}
+          testID={`boost-${kind}`}
+          style={{ borderRadius: 18, borderWidth: 1, borderColor: t.c.fg, paddingHorizontal: 16, paddingVertical: 14, opacity: busy ? 0.5 : 1 }}
+        >
+          <T size={13} w={800} ls={0.4} lh={1.3}>
+            {busy ? (hunter ? 'UNLOCKING THE CHARGE…' : 'SUMMONING THE SHIELD…') : title}
+          </T>
+          <T muted size={12.5} lh={1.35} style={{ marginTop: 2 }}>
+            {hunter ? `Radar ${allowance}/${allowance} → ${allowance + 1}/${allowance + 1} this match, zero XP penalty${pro}.` : `Invisible to the hunter’s first radar ping this match${pro}.`}
+          </T>
+        </TouchableOpacity>
+      )}
+      {note ? (
+        <T muted size={12.5} style={{ marginTop: 8 }}>
+          {note}
+        </T>
+      ) : null}
+    </View>
+  );
+}
+
 // Outdoor arenas and the dark rituals re-confirm the IRL safety warning every round.
 const safetyNote = (r, g) => {
   if (r.arena === 'roadtrip') return 'Roadtrip: drivers never play. Passengers only, and only while it is safe.';
@@ -265,6 +335,7 @@ export default function Briefing({ view, intent }) {
             }}
           />
         )}
+        {view.monetized && r.hunt && r.participants.includes(view.me) && !r.ready[view.me] && <Boost view={view} intent={intent} />}
         <RulesSections view={view} setupFirst />
       </ScrollView>
       <ReadyBar view={view} intent={intent} />
