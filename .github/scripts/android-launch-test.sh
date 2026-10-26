@@ -7,8 +7,16 @@ OUT=launch-test
 PKG=com.useus.game
 mkdir -p "$OUT"
 
+# Prints the text of every node in the last UI dump, so failures can be read from the log.
+show_screen() {
+  local f
+  f=$(ls -t "$OUT"/*.xml 2>/dev/null | head -1)
+  [ -n "$f" ] && echo "On screen ($f):" && grep -oE ' text="[^"]+"' "$f" | sed 's/ text=//' | head -60
+}
+
 fail() {
   echo "::error::$1"
+  show_screen
   adb logcat -d > "$OUT/logcat.txt" 2>/dev/null
   adb exec-out screencap -p > "$OUT/failure.png" 2>/dev/null
   grep -E "FATAL EXCEPTION|AndroidRuntime|ReactNativeJS" "$OUT/logcat.txt" | tail -60
@@ -25,14 +33,17 @@ tap_text() {
   pos=$(python3 - "$OUT/$2.xml" "$1" <<'PY'
 import re, sys
 xml = open(sys.argv[1], encoding='utf-8').read()
+nodes = []
 for m in re.finditer(r'<node [^>]*>', xml):
-    node = m.group(0)
-    t = re.search(r' text="([^"]*)"', node)
-    if t and sys.argv[2] in t.group(1):
-        b = re.search(r'bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"', node)
-        x1, y1, x2, y2 = map(int, b.groups())
-        print((x1 + x2) // 2, (y1 + y2) // 2)
-        break
+    t = re.search(r' text="([^"]*)"', m.group(0))
+    b = re.search(r'bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"', m.group(0))
+    if t and b:
+        nodes.append((t.group(1), tuple(map(int, b.groups()))))
+# An exact label wins over a sentence that merely mentions it.
+hits = [n for n in nodes if n[0] == sys.argv[2]] or [n for n in nodes if sys.argv[2] in n[0]]
+if hits:
+    x1, y1, x2, y2 = hits[0][1]
+    print((x1 + x2) // 2, (y1 + y2) // 2)
 PY
 )
   [ -n "$pos" ] || return 1
@@ -61,22 +72,25 @@ grep -q "Create account" "$OUT/screen2.xml" || fail "Sign-up screen did not appe
 adb exec-out screencap -p > "$OUT/2-signup.png"
 echo "Sign-up screen rendered"
 
-# Open the in-app Privacy Policy (native sheet) and close it again. The link sits at the
-# bottom of the sign-up form, so scroll until it is on screen.
-found=""
+# Open the in-app Privacy Policy (native sheet) and close it again. The link is the last
+# thing on the sign-up form: scroll to the end so it clears the navigation bar.
+read -r W H < <(adb shell wm size | grep -oE '[0-9]+x[0-9]+' | tail -1 | tr 'x' ' ')
 for i in 1 2 3 4; do
-  dump_ui form
-  if grep -q 'text="Privacy Policy"' "$OUT/form.xml" 2>/dev/null; then found=1; break; fi
-  read -r W H < <(adb shell wm size | grep -oE '[0-9]+x[0-9]+' | tail -1 | tr 'x' ' ')
-  adb shell input swipe $((W / 2)) $((H * 4 / 5)) $((W / 2)) $((H / 4)) 300
-  sleep 1
+  adb shell input swipe $((W / 2)) $((H * 3 / 4)) $((W / 2)) $((H / 4)) 250
+  sleep 0.5
 done
-[ -n "$found" ] || fail "Privacy Policy link not found on the sign-up screen"
+sleep 2
+dump_ui form
+grep -q 'text="Privacy Policy"' "$OUT/form.xml" || fail "Privacy Policy link not found on the sign-up screen"
 tap_text "Privacy Policy" form || fail "Could not tap the Privacy Policy link"
-sleep 3
-dump_ui screen3
+opened=""
+for i in 1 2 3 4 5; do
+  sleep 2
+  dump_ui screen3
+  if grep -q "Last updated" "$OUT/screen3.xml" 2>/dev/null; then opened=1; break; fi
+done
 adb exec-out screencap -p > "$OUT/3-privacy.png"
-grep -q "Last updated" "$OUT/screen3.xml" || fail "Privacy Policy sheet did not open"
+[ -n "$opened" ] || fail "Privacy Policy sheet did not open"
 adb shell input keyevent KEYCODE_BACK
 sleep 2
 dump_ui screen4
