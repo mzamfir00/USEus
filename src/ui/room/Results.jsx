@@ -2,9 +2,10 @@ import React, { useEffect, useState } from 'react';
 import { Download, Radar, Share2, Siren } from 'lucide-react';
 import { ARENAS, GAMES, XP } from '../../game/games';
 import { canShareClip, downloadClip, shareClip, useClips } from '../../lib/clips';
-import { buzz, Synth } from '../../lib/sound';
+import { Synth } from '../../lib/sound';
 import { Avatar, SectionLabel } from '../primitives';
 import { roundKeyOf } from '../game/GameScreen';
+import { roleTitle } from '../game/MafiaBriefing';
 import { nameOf } from '../game/shared';
 import { formatTime } from './helpers';
 import LazyMap from '../game/zone/LazyMap';
@@ -20,44 +21,67 @@ const initials = (name) =>
 // Photos taken by players this phone blocked are never shown.
 const hidden = (view, id) => !!view.players.find((p) => p.id === id)?.blocked;
 
+// Mafia: who won, every secret role, and what happened each night and day.
+function MafiaReveal({ view, rv }) {
+  const roles = rv.roles || {};
+  const out = new Set((rv.log || []).flatMap((e) => (e.kind === 'night' ? [e.victim] : [e.out])).filter(Boolean));
+  const order = ['mafia', 'detective', 'doctor', 'citizen'];
+  const ids = Object.keys(roles).sort((a, b) => order.indexOf(roles[a]) - order.indexOf(roles[b]));
+  return (
+    <>
+      <div className="card p-5" data-mafia-reveal>
+        <div className="text-[24px] font-extrabold tracking-tight">{rv.winner === 'town' ? '🏆 CITIZENS WIN!' : rv.winner === 'mafia' ? '🔪 MAFIA WINS!' : 'Game ended early'}</div>
+        <div className="muted mt-1 text-[14px]">
+          {rv.nights} night{rv.nights === 1 ? '' : 's'} in the city
+        </div>
+      </div>
+      <SectionLabel>Every secret role</SectionLabel>
+      <div className="card divide overflow-hidden">
+        {ids.map((id) => (
+          <div key={id} className={`flex items-center gap-3 px-5 py-3 ${out.has(id) ? 'opacity-55' : ''}`}>
+            <span className="flex-1 truncate text-[15px] font-semibold">
+              {nameOf(view, id)}
+              {out.has(id) ? ' 👻' : ''}
+            </span>
+            <span className="text-[14px] font-bold">{roleTitle(roles[id])}</span>
+          </div>
+        ))}
+      </div>
+      {(rv.log || []).length > 0 && (
+        <>
+          <SectionLabel>How it played out</SectionLabel>
+          <div className="card divide overflow-hidden">
+            {rv.log.map((e, i) => (
+              <div key={i} className="px-5 py-3">
+                <div className="muted text-[12px] font-semibold">{e.kind === 'night' ? `NIGHT ${e.n}` : `DAY ${e.n} · VOTE`}</div>
+                <div className="mt-0.5 text-[14.5px]">
+                  {e.kind === 'night'
+                    ? e.victim
+                      ? `The Mafia eliminated ${nameOf(view, e.victim)}`
+                      : e.saved
+                        ? 'The Doctor saved the Mafia’s target'
+                        : 'A quiet night'
+                    : e.out
+                      ? `The town voted out ${nameOf(view, e.out)} (${roleTitle(e.role)})`
+                      : 'Nobody was voted out'}
+                </div>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+    </>
+  );
+}
+
 function Reveal({ view, media }) {
   const res = view.results;
   const rv = res.reveal || {};
   switch (res.game) {
-    case 'undercover':
-      return (
-        <div className="card p-5">
-          <div className="eyebrow">The undercover saboteur was</div>
-          <div className="headline mt-1 text-[24px]">{nameOf(view, rv.saboteur)}</div>
-          <div className="mt-3 space-y-1.5">
-            {rv.tasks.map((t, i) => (
-              <div key={t} className={`text-[14.5px] ${rv.done.includes(i) ? '' : 'muted line-through'}`}>
-                {rv.done.includes(i) ? '✓' : '·'} {t}
-              </div>
-            ))}
-          </div>
-        </div>
-      );
-    case 'paparazzi':
-      return rv.shots.length ? (
-        <div className="noscroll -mx-6 flex gap-3 overflow-x-auto px-6">
-          {rv.shots.map((s) => (
-            <div key={s.id} className="card w-[150px] shrink-0 overflow-hidden">
-              <div className="aspect-[9/16] bg-black">{media[s.id] && !hidden(view, s.by) && <img src={media[s.id]} alt="" className="h-full w-full object-cover" />}</div>
-              <div className="p-3 text-[12.5px]">
-                <div className="font-semibold">{s.valid ? 'Clean hit' : 'Spotted'}</div>
-                <div className="muted truncate">
-                  {nameOf(view, s.by).split(' ')[0]} → {nameOf(view, s.target).split(' ')[0]}
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      ) : null;
+    case 'mafia':
+      return <MafiaReveal view={view} rv={rv} />;
     case 'red_light':
       return rv.out.length ? <div className="card p-5 text-[14.5px]">Out: {rv.out.map((id) => nameOf(view, id)).join(', ')}</div> : null;
-    case 'hot_potato':
-      return <div className="card p-5 text-[14.5px]">{rv.passes} passes before it blew.</div>;
     case 'floor_lava':
       return (
         <>
@@ -304,10 +328,7 @@ export default function Results({ view, intent, media }) {
   const won = res.winners.includes(view.me);
 
   useEffect(() => {
-    if (res.game === 'hot_potato') {
-      Synth.boom();
-      buzz([400, 100, 200]);
-    } else if (won) Synth.success();
+    if (won) Synth.success();
     else Synth.fail();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [res.roundKey]);

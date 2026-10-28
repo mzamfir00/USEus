@@ -1,16 +1,13 @@
 // Host-authoritative game engine (pure functions).
-// The host phone owns the full state, including per-player secrets (paparazzi targets,
-// the undercover saboteur, the bomb's fuse). Each phone receives only its own view.
+// The host phone owns the full state, including per-player secrets (Mafia roles, the
+// Doppelgänger, the lava schedule). Each phone receives only its own view.
 
-import { MISSIONS } from './missions';
 import { DEFAULT_PACK, DNA_STYLES, MAX_PLAYERS } from './constants';
 import {
   ARENAS,
   BONUS_XP,
   BUSY_MS,
   CHECKPOINTS,
-  COVERT_TASKS,
-  DARES,
   DECOY_OFFSET,
   DEFAULT_RADIUS,
   DIRECTIONS,
@@ -34,6 +31,7 @@ import {
   ZONE_RADII,
 } from './games';
 import { bearing, destination, haversine, randomInCircle, SHRINK_WINDOW, zoneRadius, zoneSide } from '../lib/geo';
+import { mafiaAction, mafiaLang, mafiaSettings, mafiaTick, scoreMafia, setupMafia, startNight } from './mafia';
 
 export const WHEEL_MS = 3800; // random roulette spin
 export const PICK_MS = 1400; // manual pick reveal
@@ -42,12 +40,8 @@ export const SONAR_COOLDOWN = 12000;
 export const SONAR_WARNING = 3000;
 export const SONAR_BEEP_MS = 2000;
 export const FREEZE_GRACE = 700;
-export const DARE_MS = 5000;
 export const INJECT_COOLDOWN = 5000;
-export const MAX_SHOTS = 3;
 export const ZONE_GRACE = 10000; // seconds outside the playzone before your position is revealed
-
-export const missionById = (id) => MISSIONS.find((m) => m.id === id) || null;
 
 const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
 
@@ -61,9 +55,6 @@ const shuffle = (arr) => {
 };
 
 const rid = () => Math.random().toString(36).slice(2, 10);
-
-export const fillText = (text, names, pack) =>
-  text.replace(/\{(Player1|Player2|Player3|Pack)\}/g, (_, k) => (k === 'Pack' ? pack : names[k]));
 
 /* ------------------------------- Room DNA -------------------------------- */
 
@@ -102,7 +93,7 @@ export function createRoom({ code, host, saved, monetized = false }) {
   return {
     code,
     hostId: host.id,
-    phase: 'lobby', // lobby | round | review | results
+    phase: 'lobby', // lobby | round | results
     settings: {
       arena,
       location: saved?.settings?.location || '',
@@ -111,6 +102,7 @@ export function createRoom({ code, host, saved, monetized = false }) {
       starter: null,
       pack: 'party',
       zone: defaultZone(arena, saved?.settings?.zone),
+      mafia: { narrator: null, lang: mafiaLang(saved?.settings?.mafia?.lang) }, // Storyteller phone (null = host)
     },
     packName: DEFAULT_PACK,
     players: [{ ...host, isHost: true, connected: true, xp: scores[host.username] || 0 }],
@@ -149,12 +141,6 @@ function pruneBusy(s, now) {
 
 const connected = (s) => s.players.filter((p) => p.connected);
 const nameOf = (s, id) => s.players.find((p) => p.id === id)?.name || 'Someone';
-
-// Names injected into undercover challenges ({Player1..3}).
-export const castNames = (view) => {
-  const n = view.round?.data?.names;
-  return n || { Player1: 'Someone', Player2: 'Someone', Player3: 'The whole squad' };
-};
 
 export const roundClock = (round, now) => ({
   started: now >= round.startsAt,
@@ -341,19 +327,18 @@ function startRound(s, now) {
   let duration = game.duration;
 
   switch (game.id) {
+    case 'mafia': {
+      const m = setupMafia(s, ids);
+      Object.assign(roles, m.public);
+      secret.players = m.secretPlayers;
+      secret.host = m.secretHost;
+      data = m.data;
+      break;
+    }
     case 'blind_sonar':
       order.forEach((id, i) => (roles[id] = i === 0 ? 'hunter' : 'survivor'));
       data = { pulses: 0, pulseAt: null, cooldownUntil: null, nearMiss: {}, nearMissAt: {}, caught: null };
       break;
-    case 'paparazzi': {
-      const ring = shuffle(ids);
-      ring.forEach((id, i) => {
-        roles[id] = 'sniper';
-        secret.players[id] = { target: ring[(i + 1) % ring.length] };
-      });
-      data = { shots: [], votes: {} };
-      break;
-    }
     case 'teleprompter': {
       order.forEach((id, i) => (roles[id] = i === 0 ? 'actor' : i === 1 ? 'director' : 'saboteur'));
       const product = pick(PRODUCTS[s.settings.arena] || PRODUCTS.indoor);
@@ -364,27 +349,6 @@ function startRound(s, now) {
       order.forEach((id, i) => (roles[id] = i === 0 ? 'watcher' : 'runner'));
       data = { light: 'green', changedAt: null, flips: 0, out: {}, winner: null };
       break;
-    case 'hot_potato':
-      ids.forEach((id) => (roles[id] = 'player'));
-      data = { holder: lead, since: null, passes: 0, dare: pick(DARES), exploded: null };
-      duration = 90;
-      break;
-    case 'undercover': {
-      const category = ARENAS[s.settings.arena].missionCategory;
-      const mission = pick(MISSIONS.filter((m) => m.category === category));
-      const sab = pick(order.slice(1).length ? order.slice(1) : order);
-      ids.forEach((id) => (roles[id] = 'crew'));
-      secret.players[sab] = { saboteur: true, tasks: shuffle(COVERT_TASKS).slice(0, 3), done: [] };
-      secret.host.saboteurId = sab;
-      const cast = shuffle(ids);
-      data = {
-        missionId: mission.id,
-        names: { Player1: nameOf(s, cast[0]), Player2: nameOf(s, cast[1]), Player3: cast[2] ? nameOf(s, cast[2]) : 'the whole squad' },
-        votes: {},
-      };
-      duration = Math.min(mission.duration, 240);
-      break;
-    }
     case 'hide_seek':
       order.forEach((id, i) => (roles[id] = i === 0 ? 'seeker' : 'hider'));
       data = { hideUntil: null, radarLeft: 3, radarAt: null, radarCount: 0, radarCooldown: 0, found: {}, noise: { count: 0, at: 0 } };
@@ -441,7 +405,7 @@ function startRound(s, now) {
   }
 
   const z = s.settings.zone;
-  const zoned = ZONE_ARENAS.includes(s.settings.arena) && z?.on && validPoint(z.center);
+  const zoned = !game.noZone && ZONE_ARENAS.includes(s.settings.arena) && z?.on && validPoint(z.center);
   if (zoned) secret.host = { ...secret.host, pos: {}, trails: {}, hb: {}, decoys: {}, ghost: {}, ghostUsed: {}, scan: null, radarLog: [], outLog: [] };
 
   s.round = {
@@ -499,16 +463,15 @@ function armRound(s, now) {
   r.startsAt = startsAt;
   r.endsAt = startsAt + r.duration * 1000;
   switch (r.game) {
+    case 'mafia':
+      startNight(s, startsAt); // Night 1 begins when the countdown hits zero
+      break;
     case 'blind_sonar':
     case 'marco_polo':
       d.cooldownUntil = startsAt;
       break;
     case 'red_light':
       d.changedAt = startsAt;
-      break;
-    case 'hot_potato':
-      d.since = startsAt;
-      s.secret.host.explodeAt = startsAt + 30000 + Math.floor(Math.random() * 40000);
       break;
     case 'hide_seek':
     case 'sardines':
@@ -584,6 +547,13 @@ function finish(s, now, outcome) {
   const secretWins = {};
 
   switch (r.game) {
+    case 'mafia': {
+      const m = scoreMafia(s, add, winners);
+      headline = m.headline;
+      Object.assign(reveal, m.reveal);
+      if (m.reveal.mafiaWon) r.participants.filter((id) => m.reveal.roles[id] === 'mafia').forEach((id) => (secretWins[id] = 1));
+      break;
+    }
     case 'blind_sonar': {
       const hunter = r.participants.find((id) => role(id) === 'hunter');
       const survivors = r.participants.filter((id) => id !== hunter);
@@ -605,24 +575,6 @@ function finish(s, now, outcome) {
         headline = 'The survivors escaped the sonar';
       }
       Object.entries(d.nearMiss).forEach(([id, n]) => add(id, n * XP.nearMiss));
-      break;
-    }
-    case 'paparazzi': {
-      let valid = 0;
-      reveal.shots = d.shots.map((shot) => {
-        const votes = Object.values(d.votes[shot.id] || {});
-        const yes = votes.filter(Boolean).length;
-        const ok = yes > votes.length - yes;
-        if (ok) {
-          valid += 1;
-          add(shot.by, XP.validShot);
-          add(shot.target, XP.shotTarget);
-          winners.add(shot.by);
-        }
-        return { ...shot, valid: ok, yes, no: votes.length - yes };
-      });
-      reveal.targets = Object.fromEntries(Object.entries(s.secret.players).map(([id, v]) => [id, v.target]));
-      headline = valid ? `${valid} confirmed hit${valid === 1 ? '' : 's'}` : 'Nobody landed a clean shot';
       break;
     }
     case 'teleprompter': {
@@ -654,50 +606,6 @@ function finish(s, now, outcome) {
         headline = `${nameOf(s, watcher)} held the line`;
       }
       reveal.out = Object.keys(d.out);
-      break;
-    }
-    case 'hot_potato': {
-      const loser = d.exploded || d.holder;
-      r.participants.forEach((id) => {
-        if (id === loser) add(id, XP.bombLoser);
-        else {
-          add(id, XP.bombSurvive);
-          winners.add(id);
-        }
-      });
-      headline = `Boom. It blew up on ${nameOf(s, loser)}`;
-      reveal.loser = loser;
-      reveal.passes = d.passes;
-      break;
-    }
-    case 'undercover': {
-      const sab = s.secret.host.saboteurId;
-      const tally = {};
-      Object.values(d.votes).forEach((v) => {
-        tally[v] = (tally[v] || 0) + 1;
-      });
-      const top = Math.max(0, ...Object.values(tally));
-      const leaders = Object.keys(tally).filter((k) => tally[k] === top);
-      const caught = top > 0 && leaders.length === 1 && leaders[0] === sab;
-      const done = s.secret.players[sab]?.done.length || 0;
-      if (caught) {
-        r.participants.filter((id) => id !== sab).forEach((id) => {
-          add(id, XP.crewCatch);
-          winners.add(id);
-        });
-        add(sab, done * XP.sabCaughtTask);
-        headline = `The squad caught ${nameOf(s, sab)}`;
-      } else {
-        add(sab, XP.sabEscape + done * XP.sabTask);
-        r.participants.filter((id) => id !== sab).forEach((id) => add(id, XP.crewMissed));
-        winners.add(sab);
-        secretWins[sab] = 1;
-        headline = `${nameOf(s, sab)} got away with it`;
-      }
-      reveal.saboteur = sab;
-      reveal.tasks = s.secret.players[sab]?.tasks || [];
-      reveal.done = s.secret.players[sab]?.done || [];
-      reveal.tally = tally;
       break;
     }
     case 'hide_seek': {
@@ -986,15 +894,8 @@ function finish(s, now, outcome) {
   s.phase = 'results';
 }
 
-// Ends active play: games with a vote go to review, the rest straight to results.
-function endPlay(s, now, reason) {
-  const g = s.round.game;
-  if (g === 'paparazzi' || g === 'undercover') {
-    s.phase = 'review';
-    s.round.reviewSince = now;
-    s.round.endReason = reason;
-  } else finish(s, now, reason);
-}
+// Ends active play and scores the round.
+const endPlay = (s, now, reason) => finish(s, now, reason);
 
 /* --------------------------------- reducer ------------------------------- */
 
@@ -1101,12 +1002,15 @@ export function reduce(prev, actorId, a, now = Date.now()) {
         break;
       }
       if (!r || s.phase !== 'round' || r.stage !== 'live') return prev;
+      if (r.game === 'mafia' && now < r.endsAt) {
+        const t = mafiaTick(s, now);
+        if (t === 'finish') finish(s, now, r.data.winner);
+        else if (!t) return prev;
+        break;
+      }
       const zoneChanged = r.zone && now >= r.startsAt ? zoneTick(s, now) : false;
       const nextLava = r.game === 'floor_lava' ? s.secret.host.lavaTimes.find((t) => t > (r.data.lava?.at || 0)) : null;
-      if (r.game === 'hot_potato' && (now >= s.secret.host.explodeAt || now >= r.endsAt)) {
-        r.data.exploded = r.data.holder;
-        finish(s, now, 'exploded');
-      } else if (now >= r.endsAt) {
+      if (now >= r.endsAt) {
         endPlay(s, now, 'time');
       } else if (nextLava && now >= nextLava - 6000) {
         r.data.lava = { n: (r.data.lava?.n || 0) + 1, at: nextLava };
@@ -1118,11 +1022,6 @@ export function reduce(prev, actorId, a, now = Date.now()) {
       const directorCanEnd = r.game === 'teleprompter' && myRole === 'director';
       if (!isHost && !directorCanEnd) return prev;
       endPlay(s, now, 'host');
-      break;
-    }
-    case 'finishReview': {
-      if (!isHost || s.phase !== 'review') return prev;
-      finish(s, now, r.endReason || 'time');
       break;
     }
 
@@ -1197,22 +1096,6 @@ export function reduce(prev, actorId, a, now = Date.now()) {
       break;
     }
 
-    /* ---- Paparazzi ---- */
-    case 'shot': {
-      if (!inPlay || r.game !== 'paparazzi' || !isPlayer) return prev;
-      const mine = r.data.shots.filter((x) => x.by === actorId).length;
-      if (mine >= MAX_SHOTS || !a.id) return prev;
-      r.data.shots.push({ id: a.id, by: actorId, target: s.secret.players[actorId].target, at: now });
-      break;
-    }
-    case 'voteShot': {
-      if (s.phase !== 'review' || r.game !== 'paparazzi' || !isPlayer) return prev;
-      const shot = r.data.shots.find((x) => x.id === a.id);
-      if (!shot || shot.by === actorId) return prev;
-      r.data.votes[a.id] = { ...(r.data.votes[a.id] || {}), [actorId]: !!a.valid };
-      break;
-    }
-
     /* ---- Teleprompter ---- */
     case 'inject': {
       if (!inPlay || r.game !== 'teleprompter' || !isPlayer || myRole === 'actor') return prev;
@@ -1246,48 +1129,43 @@ export function reduce(prev, actorId, a, now = Date.now()) {
       break;
     }
 
-    /* ---- Hot Potato ---- */
-    case 'pass': {
-      if (!inPlay || r.game !== 'hot_potato' || r.data.holder !== actorId) return prev;
-      if (now - r.data.since < DARE_MS || a.to === actorId || !r.participants.includes(a.to) || !find(a.to)?.connected) return prev;
-      r.data.holder = a.to;
-      r.data.since = now;
-      r.data.passes += 1;
-      r.data.dare = pick(DARES.filter((d) => d !== r.data.dare));
+    /* ---- Mafia ---- */
+    case 'mafiaSettings': {
+      if (!isHost || !mafiaSettings(s, a)) return prev;
+      break;
+    }
+    case 'mafiaPick':
+    case 'mafiaConfirm':
+    case 'mafiaProtect':
+    case 'mafiaCheck':
+    case 'mafiaSkip':
+    case 'mafiaVote': {
+      if (!inPlay || r.game !== 'mafia') return prev;
+      const res = mafiaAction(s, actorId, a, now);
+      if (!res) return prev;
+      if (res === 'finish') finish(s, now, r.data.winner);
       break;
     }
 
-    /* ---- Undercover ---- */
-    case 'task': {
-      const mine = s.secret?.players[actorId];
-      if (!inPlay || r.game !== 'undercover' || !mine?.saboteur || !mine.tasks[a.i] || mine.done.includes(a.i)) return prev;
-      mine.done.push(a.i);
-      break;
-    }
+    /* ---- Doppelgänger: live majority vote among the players still standing ---- */
     case 'accuse': {
-      if (r?.game === 'doppelganger') {
-        // Live majority vote among the players still standing.
-        const d = r.data;
-        const alive = dopAlive(r);
-        if (!inPlay || !alive.includes(actorId) || a.id === actorId || (a.id && !alive.includes(a.id))) return prev;
-        if (a.id) d.accuse[actorId] = a.id;
-        else delete d.accuse[actorId];
-        const votes = Object.values(d.accuse).filter((id) => id === a.id).length;
-        if (a.id && votes >= Math.floor(alive.length / 2) + 1) {
-          d.accuse = {};
-          if (a.id === s.secret.host.dopId) {
-            d.found = a.id;
-            finish(s, now, 'found');
-          } else {
-            d.banished[a.id] = now; // an innocent explorer is voted out
-            if (dopAlive(r).filter((id) => id !== s.secret.host.dopId).length <= 1) finish(s, now, 'banished');
-          }
+      if (r?.game !== 'doppelganger') return prev;
+      const d = r.data;
+      const alive = dopAlive(r);
+      if (!inPlay || !alive.includes(actorId) || a.id === actorId || (a.id && !alive.includes(a.id))) return prev;
+      if (a.id) d.accuse[actorId] = a.id;
+      else delete d.accuse[actorId];
+      const votes = Object.values(d.accuse).filter((id) => id === a.id).length;
+      if (a.id && votes >= Math.floor(alive.length / 2) + 1) {
+        d.accuse = {};
+        if (a.id === s.secret.host.dopId) {
+          d.found = a.id;
+          finish(s, now, 'found');
+        } else {
+          d.banished[a.id] = now; // an innocent explorer is voted out
+          if (dopAlive(r).filter((id) => id !== s.secret.host.dopId).length <= 1) finish(s, now, 'banished');
         }
-        break;
       }
-      if (s.phase !== 'review' || r.game !== 'undercover' || !isPlayer || !r.participants.includes(a.id) || a.id === actorId) return prev;
-      r.data.votes[actorId] = a.id;
-      if (r.participants.filter((id) => find(id)?.connected).every((id) => r.data.votes[id])) finish(s, now, 'votes');
       break;
     }
 

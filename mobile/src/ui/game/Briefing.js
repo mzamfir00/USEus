@@ -13,6 +13,7 @@ import { useAdBreak } from '../monetization/useAdBreak';
 import { Avatar, Button, Card, Divided, Eyebrow, T, Title } from '../primitives';
 import SafetyGate from '../Safety';
 import HorrorFx, { HorrorTitle } from './HorrorFx';
+import { MafiaBriefing, MafiaRules } from './MafiaBriefing';
 
 const nameOf = (view, id) => view.players.find((p) => p.id === id)?.name || 'Someone';
 
@@ -33,6 +34,7 @@ export function RulesSections({ view, setupFirst = true }) {
   const t = useTheme();
   const info = briefingFor(view);
   const [setupOpen, setSetupOpen] = useState(setupFirst);
+  if (view.round.game === 'mafia') return <MafiaRules view={view} />; // secret roles: public guide only
   const labels = ['Do this in real life', 'On your screen', 'Penalty'];
   const icons = [Footprints, Smartphone, Siren];
 
@@ -144,7 +146,7 @@ export function RulesSections({ view, setupFirst = true }) {
 }
 
 // Live "READY: 3/4 PLAYERS" + the big ready button and the host's force start.
-function ReadyBar({ view, intent }) {
+function ReadyBar({ view, intent, label = 'I UNDERSTAND THE RULES — READY' }) {
   const t = useTheme();
   const insets = useSafeAreaInsets();
   const r = view.round;
@@ -180,7 +182,7 @@ function ReadyBar({ view, intent }) {
             <Button variant="secondary" icon={Check} title={`Ready — waiting for ${waiting.length ? waiting.join(', ') : 'the countdown'}`} onPress={() => intent({ type: 'ready', on: false })} testID="unready" />
           ) : (
             <Button
-              title="I UNDERSTAND THE RULES — READY"
+              title={label}
               testID="ready"
               onPress={() => {
                 Synth.unlock();
@@ -307,6 +309,15 @@ export default function Briefing({ view, intent }) {
   useEffect(() => {
     buzz([40, 30, 40]);
   }, []);
+
+  if (r.game === 'mafia') {
+    return (
+      <>
+        <MafiaBriefing view={view} intent={intent} footer={<ReadyBar view={view} intent={intent} label="I HID MY ROLE — READY" />} />
+        {!agreed && <SafetyGate extra={safetyNote(r, info.game)} onAgree={() => setAgreed(true)} />}
+      </>
+    );
+  }
 
   return (
     <View style={{ flex: 1 }} testID="briefing">

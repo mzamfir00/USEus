@@ -1,4 +1,4 @@
-export const MAX_PLAYERS = 8;
+export const MAX_PLAYERS = 12;
 export const DEFAULT_PACK = 'THE SQUAD';
 
 export const DNA_STYLES = {

@@ -7,6 +7,7 @@ import { Building2, Car, Check, Crosshair, Dices, Ellipsis, Flame, House, Locate
 import { ARENAS, GAMES, HALLOWEEN, HUNT, PRO_SHRINK, ZONE_ARENAS, ZONE_RADII, gamesFor, halloweenLive, isProFeature, packOf, proLocked, roomPro } from '../../core';
 import { useTheme } from '../../theme';
 import HorrorFx, { Breathe, HorrorTitle, Vhs } from '../game/HorrorFx';
+import { StorytellerSetup } from '../game/MafiaBriefing';
 import TacticalMap from '../game/zone/TacticalMap';
 import ProGate from '../monetization/ProGate';
 import { useAdBreak } from '../monetization/useAdBreak';
@@ -356,7 +357,7 @@ export default function Lobby({ view, intent, onInvite }) {
                 All games
               </T>
               <T size={12} color={pack === 'party' ? t.c.bg : t.c.muted} style={pack === 'party' ? { opacity: 0.7 } : null}>
-                Party & classics · 11
+                Party & classics · {Object.values(GAMES).filter((g) => packOf(g) === 'party').length}
               </T>
             </TouchableOpacity>
             <TouchableOpacity
@@ -375,7 +376,7 @@ export default function Lobby({ view, intent, onInvite }) {
                 Halloween Horror
               </HorrorTitle>
               <Vhs size={10.5} color="rgba(255,255,255,0.6)" style={{ marginTop: 4 }}>
-                5 rituals · until {HALLOWEEN.until}
+                {Object.values(GAMES).filter((g) => packOf(g) === 'halloween').length} rituals · until {HALLOWEEN.until}
               </Vhs>
             </TouchableOpacity>
           </View>
@@ -470,6 +471,8 @@ export default function Lobby({ view, intent, onInvite }) {
             )}
           </>
         )}
+
+        {(st.mode === 'manual' ? chosen.id === 'mafia' : fits.some((g) => g.id === 'mafia')) && <StorytellerSetup view={view} intent={intent} where="lobby" />}
       </ScrollView>
 
       <ProGate gate={isHost && !roomPro(view) ? gate : null} onWatch={ads.unlock} onClose={() => setGate(null)} />

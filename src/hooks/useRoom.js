@@ -23,7 +23,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const ERRORS = {
   'no-room': 'No room with that code is live right now.',
-  full: 'That room is full (8 players max).',
+  full: `That room is full (${MAX_PLAYERS} players max).`,
   'same-account': 'You are already in this room on another phone.',
   removed: 'The host removed you from this room.',
   timeout: 'Could not reach the room. Check your connection and try again.',
@@ -119,7 +119,7 @@ export function useRoom(profile, onProfileUpdate) {
         location: r.location || null,
         category: r.arena,
         outcome: next.results.outcome,
-        saboteurWon: !!next.results.reveal?.saboteur && next.results.winners.includes(next.results.reveal.saboteur),
+        saboteurWon: !!next.results.reveal?.mafiaWon, // the hidden side won (Mafia)
         players: next.players.filter((p) => r.participants.includes(p.id)).map((p) => p.username),
       });
     } else if (JSON.stringify(next.settings) !== JSON.stringify(prev.settings)) {
@@ -158,7 +158,7 @@ export function useRoom(profile, onProfileUpdate) {
     (actorId, action) => {
       const h = host.current;
       if (!h) return;
-      // Any intent carrying a photo (paparazzi shots, lava proofs): strip the image, apply
+      // Any intent carrying a photo (lava proofs, TOMARE selfies): strip the image, apply
       // the intent, and only if it was accepted share the photo once with every phone.
       if (typeof action.img === 'string') {
         const { img, ...rest } = action;

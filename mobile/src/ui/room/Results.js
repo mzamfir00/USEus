@@ -6,9 +6,10 @@ import { ResizeMode, Video } from 'expo-av';
 import { Download, Radar, Share2, Siren, Zap } from 'lucide-react-native';
 import { ARENAS, BONUS_XP, GAMES, XP, proLocked, roomPro } from '../../core';
 import { downloadClip, shareClip, useClips } from '../../lib/clips';
-import { buzz, haptic, Synth } from '../../lib/sound';
+import { haptic, Synth } from '../../lib/sound';
 import { useTheme } from '../../theme';
 import { roundKeyOf } from '../game/GameScreen';
+import { roleTitle } from '../game/MafiaBriefing';
 import Photo from '../game/Photo';
 import { nameOf } from '../game/shared';
 import TacticalMap from '../game/zone/TacticalMap';
@@ -54,45 +55,10 @@ function Reveal({ view, media }) {
   const rv = res.reveal || {};
   const names = (ids, sep = ', ') => ids.map((id) => nameOf(view, id)).join(sep);
   switch (res.game) {
-    case 'undercover':
-      return (
-        <TextCard>
-          <Eyebrow>The undercover saboteur was</Eyebrow>
-          <Title size={24} style={{ marginTop: 4 }}>
-            {nameOf(view, rv.saboteur)}
-          </Title>
-          <View style={{ marginTop: 12, gap: 6 }}>
-            {rv.tasks.map((task, i) => (
-              <T key={task} size={14.5} muted={!rv.done.includes(i)} style={rv.done.includes(i) ? null : { textDecorationLine: 'line-through' }}>
-                {rv.done.includes(i) ? '✓' : '·'} {task}
-              </T>
-            ))}
-          </View>
-        </TextCard>
-      );
-    case 'paparazzi':
-      return rv.shots.length ? (
-        <PhotoStrip
-          items={rv.shots}
-          width={150}
-          media={media}
-          view={view}
-          caption={(s) => (
-            <>
-              <T size={12.5} w={600}>
-                {s.valid ? 'Clean hit' : 'Spotted'}
-              </T>
-              <T muted size={12.5} numberOfLines={1}>
-                {nameOf(view, s.by).split(' ')[0]} → {nameOf(view, s.target).split(' ')[0]}
-              </T>
-            </>
-          )}
-        />
-      ) : null;
+    case 'mafia':
+      return <MafiaReveal view={view} rv={rv} />;
     case 'red_light':
       return rv.out.length ? <TextCard>{`Out: ${names(rv.out)}`}</TextCard> : null;
-    case 'hot_potato':
-      return <TextCard>{`${rv.passes} passes before it blew.`}</TextCard>;
     case 'floor_lava':
       return (
         <>
@@ -221,6 +187,69 @@ function Reveal({ view, media }) {
     default:
       return null;
   }
+}
+
+// Mafia: who won, every secret role, and what happened each night and day.
+function MafiaReveal({ view, rv }) {
+  const roles = rv.roles || {};
+  const out = new Set((rv.log || []).flatMap((e) => (e.kind === 'night' ? [e.victim] : [e.out])).filter(Boolean));
+  const order = ['mafia', 'detective', 'doctor', 'citizen'];
+  const ids = Object.keys(roles).sort((a, b) => order.indexOf(roles[a]) - order.indexOf(roles[b]));
+  return (
+    <>
+      <Card inner={{ padding: 20 }} testID="mafia-reveal">
+        <T size={24} w={800} ls={-0.6}>
+          {rv.winner === 'town' ? '🏆 CITIZENS WIN!' : rv.winner === 'mafia' ? '🔪 MAFIA WINS!' : 'Game ended early'}
+        </T>
+        <T muted size={14} style={{ marginTop: 4 }}>
+          {rv.nights} night{rv.nights === 1 ? '' : 's'} in the city
+        </T>
+      </Card>
+      <SectionLabel>Every secret role</SectionLabel>
+      <Card>
+        <Divided>
+          {ids.map((id) => (
+            <View key={id} style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 20, paddingVertical: 12, opacity: out.has(id) ? 0.55 : 1 }}>
+              <T size={15} w={600} style={{ flex: 1 }} numberOfLines={1}>
+                {nameOf(view, id)}
+                {out.has(id) ? ' 👻' : ''}
+              </T>
+              <T size={14} w={700}>
+                {roleTitle(roles[id])}
+              </T>
+            </View>
+          ))}
+        </Divided>
+      </Card>
+      {(rv.log || []).length > 0 && (
+        <>
+          <SectionLabel>How it played out</SectionLabel>
+          <Card>
+            <Divided>
+              {rv.log.map((e, i) => (
+                <View key={i} style={{ paddingHorizontal: 20, paddingVertical: 12 }}>
+                  <T muted size={12} w={600}>
+                    {e.kind === 'night' ? `NIGHT ${e.n}` : `DAY ${e.n} · VOTE`}
+                  </T>
+                  <T size={14.5} style={{ marginTop: 2 }}>
+                    {e.kind === 'night'
+                      ? e.victim
+                        ? `The Mafia eliminated ${nameOf(view, e.victim)}`
+                        : e.saved
+                          ? 'The Doctor saved the Mafia’s target'
+                          : 'A quiet night'
+                      : e.out
+                        ? `The town voted out ${nameOf(view, e.out)} (${roleTitle(e.role)})`
+                        : 'Nobody was voted out'}
+                  </T>
+                </View>
+              ))}
+            </Divided>
+          </Card>
+        </>
+      )}
+    </>
+  );
 }
 
 // Snitch Protocol summary: who stopped filming and what it cost them.
@@ -447,10 +476,7 @@ export default function Results({ view, intent, media }) {
   const won = res.winners.includes(view.me);
 
   useEffect(() => {
-    if (res.game === 'hot_potato') {
-      Synth.boom();
-      buzz([400, 100, 200]);
-    } else if (won) {
+    if (won) {
       Synth.success();
       haptic.success();
     } else {

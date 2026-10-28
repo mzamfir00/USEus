@@ -3,12 +3,13 @@
 import React, { useState } from 'react';
 import { ActivityIndicator, Platform, View } from 'react-native';
 import { Check, Radar, RotateCcw, Sparkles, Zap } from 'lucide-react-native';
+import { GAMES } from '../../core';
 import { PLANS } from '../../config/monetization';
 import { activePro, closeStore, presentPaywall, purchase, radarLeft, restore, useMonetization } from '../../services/monetizationService';
 import { useTheme } from '../../theme';
 import { Button, Card, Divided, Eyebrow, Sheet, T } from '../primitives';
 
-export const HOST_PITCH = 'When you host a room with Pro, all 16+ games, Halloween Rituals, and Ad-Free matches are unlocked for every friend in your lobby!';
+export const HOST_PITCH = `When you host a room with Pro, all ${Object.keys(GAMES).length} games, Halloween Rituals, and Ad-Free matches are unlocked for every friend in your lobby!`;
 
 export function proLabel(pro, now = Date.now()) {
   const p = activePro(pro, now);

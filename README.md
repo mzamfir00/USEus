@@ -22,13 +22,25 @@ An IRL party game where every player uses their own phone. Spin a mission, get y
   - **How the other roles work:** a summary of the other side's abilities. Secret roles stay hidden.
 
   A live "READY: 3/4 PLAYERS" counter tracks "I UNDERSTAND THE RULES — READY" taps. The countdown starts when every connected player is ready, or when the host taps Force start. During play, a "?" button reopens your briefing without pausing the camera or triggering the Snitch Protocol.
-- **Six party games**, with every phone as a controller:
+- **Flagship: Mafia — The AI Storyteller** (4–12 players). One phone, the Storyteller, reads the whole game out loud through text-to-speech (`expo-speech` in the app, speech synthesis on the web), in Romanian or English. Its owner still plays, so nobody sits out as moderator.
+  - **Setup:** roles scale with the room: 4–5 players get 1 Mafia, 6–8 get 2, 9+ get 3, always plus 1 Doctor and 1 Detective; everyone else is a Citizen. The host picks the Storyteller phone and the language in the lobby or the briefing. If that phone drops out, the host's phone takes over.
+  - **Briefing:** each player holds a card to privately see their secret role, then taps "I Hid My Role — Ready".
+  - **Night:**
+    - Every screen goes pitch black ("NIGHT TIME — CLOSE YOUR EYES").
+    - The Storyteller calls the Mafia, the Doctor and the Detective in turn. Only the role being called feels a gentle vibration and sees a dim target list, with a 20 s timer.
+    - Two or three Mafia members see each other's picks live and must confirm the same name.
+    - The Detective gets a 4-second private verdict: [🔪 MAFIA] or [✅ INNOCENT].
+    - A dead Doctor or Detective is still called, then a silent 7–10 s pause follows, so nobody learns who died.
+  - **Day:**
+    - The morning newspaper and the Storyteller announce the victim, or the Doctor's save.
+    - Eliminated players switch to Ghost Camera mode: they film the survivors and can't vote.
+    - A 2:00 debate timer runs; the host can skip straight to the vote.
+    - Every living player votes on their own phone ("Votes Cast: 4/6") or skips. Once the last ballot lands, everyone sees who voted for whom and the eliminated player's true role.
+  - **Win:** the Citizens win when no Mafia member is left; the Mafia wins once it equals the rest of the town. Otherwise the next night begins.
+- **Party games**, with every phone as a controller:
   - **Blind Sonar:** the blind hunter's phone is one giant tap target. Each pulse (12 s cooldown) counts down 3-2-1 and then makes every survivor's phone beep loudly while they film. Survivors can claim a Near miss.
-  - **Paparazzi Sniper:** each player has a private target in a circular chain. A sniper viewfinder takes stamped photos, and the squad votes on each shot: clean hit or spotted.
   - **Blind Teleprompter:** a time-synced script on the actor's phone, mirrored on the director's camera. Saboteurs inject live stage directions.
   - **Red Light Freeze Cam:** the watcher gets a giant toggle. On red, runners' phones play a siren and flash, then watch the motion sensor. Without a sensor, players must hold a button.
-  - **Timebomb Hot Potato:** an accelerating tick plays on the holder's phone. They do a 5-second dare, then pass the bomb to a named player. The fuse is hidden.
-  - **Undercover Saboteur:** everyone films a shared challenge. The saboteur alone gets 3 covert tasks, then every phone votes.
 - **Five childhood classics:**
   - **Hide & Seek: Snitch Cam:** the seeker counts down 30 s, then hunts with a camera, flashlight, flash pulse and 3 sound pings. Hiders face a 10-second peek check every 45 s.
   - **Sardines:** hiders silently squeeze in with the first hider; the last one still searching loses.
@@ -124,8 +136,8 @@ npx expo run:ios       # macOS + Xcode
 Configured in `mobile/src/config/monetization.js`, run by `mobile/src/services/monetizationService.js` (`.web.js` for the web preview).
 
 - **Only the host needs Pro.** In rooms hosted from the app, a host with a Pro Pass unlocks every game for the whole room and removes ads for everyone. Web-hosted rooms stay fully free.
-- **Free forever:** Blind Sonar, Hide & Seek: Snitch Cam, Blind Teleprompter, The Floor Is Lava and Don't Blink, plus the other party games.
-- **⚡ Pro / ad-unlockable:** The Midnight Man, Daruma-San, The Doppelgänger, Dead Silence, Paparazzi Sniper, Sardines, Marco Polo Flash and the shrinking battle-royale ring. A free host can watch a rewarded ad to unlock one of them for the whole room for one match. The roulette leaves locked games off the wheel until they're unlocked.
+- **Free forever:** Mafia: The AI Storyteller, Blind Sonar, Hide & Seek: Snitch Cam, Blind Teleprompter, The Floor Is Lava and Don't Blink, plus the other party games.
+- **⚡ Pro / ad-unlockable:** The Midnight Man, Daruma-San, The Doppelgänger, Dead Silence, Sardines, Marco Polo Flash and the shrinking battle-royale ring. A free host can watch a rewarded ad to unlock one of them for the whole room for one match. The roulette leaves locked games off the wheel until they're unlocked.
 - **Rewarded placements:**
   - Lobby: unlock a Pro game.
   - Briefing, GPS hunts: hunter +1 radar charge (2/2 → 3/3, the extra ping costs no XP); hider Ghost Shield (hidden from the first radar ping).
@@ -165,8 +177,8 @@ src/
   lib/sound.js          Web Audio synth
   hooks/useRoom.js      host loop (authoritative state) + client loop (reconnects)
   game/engine.js        host-authoritative rules for every game + the GPS Playzone, scoring, Room DNA, per-phone views
-  game/games.js         arenas, game definitions, scripts, dares, covert tasks, XP table
-  game/missions.js      challenges used by Undercover Saboteur
+  game/games.js         arenas, game definitions, scripts, XP table
+  game/mafia.js         Mafia: roles, RO/EN Storyteller script, night/day/vote state machine
   game/briefings.js     Mission Briefing content: setup steps, per-role controls and penalties
   lib/clips.js          recorded clips (replay / save / share)
   lib/motion.js         shared motion + orientation + compass feed (iOS permission flow)

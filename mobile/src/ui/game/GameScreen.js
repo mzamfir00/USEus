@@ -3,13 +3,11 @@ import { View } from 'react-native';
 import { ARENAS, GAMES } from '../../core';
 import { T } from '../primitives';
 import { FloorLava, HideSeekHider, HideSeekSeeker, MarcoHunter, MarcoPolo, Sardines, ZombieTag } from './Classics';
-import HotPotato from './HotPotato';
-import { PaparazziReview, PaparazziSniper } from './Paparazzi';
+import MafiaGame from './Mafia';
 import { RedLightRunner, RedLightWatcher } from './RedLight';
 import { DarumaShadow, DarumaWalker, Doppelganger, MidnightCandle, MidnightHunter, SilenceHunter, SilenceSurvivor, StatueEntity, StatueWatcher } from './Rituals';
 import { SonarHunter, SonarSurvivor } from './Sonar';
 import { TeleprompterActor, TeleprompterDirector, TeleprompterSaboteur } from './Teleprompter';
-import { UndercoverPlay, UndercoverVote } from './Undercover';
 import { IntentContext } from './context';
 import { GameShell } from './shared';
 
@@ -52,20 +50,16 @@ function RoleScreen({ view, serverNow, intent, media, onLeave }) {
   }
 
   switch (r.game) {
+    case 'mafia':
+      return <MafiaGame {...props} />;
     case 'blind_sonar':
       return role === 'hunter' ? <SonarHunter {...props} /> : <SonarSurvivor {...props} />;
-    case 'paparazzi':
-      return <PaparazziSniper {...props} />;
     case 'teleprompter':
       if (role === 'actor') return <TeleprompterActor {...props} />;
       if (role === 'director') return <TeleprompterDirector {...props} />;
       return <TeleprompterSaboteur {...props} />;
     case 'red_light':
       return role === 'watcher' ? <RedLightWatcher {...props} /> : <RedLightRunner {...props} />;
-    case 'hot_potato':
-      return <HotPotato {...props} />;
-    case 'undercover':
-      return <UndercoverPlay {...props} />;
     case 'hide_seek':
       return role === 'seeker' ? <HideSeekSeeker {...props} /> : <HideSeekHider {...props} />;
     case 'sardines':
@@ -89,10 +83,4 @@ function RoleScreen({ view, serverNow, intent, media, onLeave }) {
     default:
       return null;
   }
-}
-
-export function ReviewScreen({ view, intent, media }) {
-  if (view.round.game === 'paparazzi') return <PaparazziReview view={view} intent={intent} media={media} />;
-  if (view.round.game === 'undercover') return <UndercoverVote view={view} intent={intent} />;
-  return null;
 }

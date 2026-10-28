@@ -626,26 +626,6 @@ export function Empty({ icon: Icon, title, body }) {
   );
 }
 
-// Mission text with player names as small inverted chips.
-export function RichText({ text, names, pack, size = 17, w = 500, style, center }) {
-  const t = useTheme();
-  const parts = String(text).split(/(\{(?:Player1|Player2|Player3|Pack)\})/g);
-  return (
-    <T size={size} w={w} lh={1.35} style={style} center={center}>
-      {parts.map((part, i) => {
-        const m = part.match(/^\{(Player1|Player2|Player3|Pack)\}$/);
-        if (!m) return part;
-        const value = m[1] === 'Pack' ? pack : names[m[1]];
-        return (
-          <Text key={i} style={{ backgroundColor: t.c.fg, color: t.c.bg }}>
-            {` ${value} `}
-          </Text>
-        );
-      })}
-    </T>
-  );
-}
-
 export function LevelDots({ stage }) {
   const t = useTheme();
   return (

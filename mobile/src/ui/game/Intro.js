@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Animated, Dimensions, Easing, View } from 'react-native';
 import Svg, { Circle, G, Path, Text as SvgText } from 'react-native-svg';
-import { MapPin } from 'lucide-react-native';
+import { MapPin, Moon } from 'lucide-react-native';
 import { ARENAS, GAMES, PICK_MS, WHEEL_MS } from '../../core';
 import { purgeOldClips } from '../../lib/clips';
 import { prepareRound } from '../../lib/permissions';
@@ -11,16 +11,13 @@ import { Eyebrow, T, Title } from '../primitives';
 import { useNow } from '../helpers';
 import Briefing from './Briefing';
 import HorrorFx, { HorrorTitle } from './HorrorFx';
-import { nameOf } from './shared';
 
 const roleBrief = (view) => {
   const r = view.round;
   const g = GAMES[r.game];
   const role = r.roles[view.me];
   if (!role) return { label: 'Spectator', brief: 'You joined mid-round. Watch this one — you’re in next time.' };
-  if (r.game === 'undercover' && view.mine?.saboteur) return g.roles.saboteur;
   if (r.game === 'doppelganger' && view.mine?.doppelganger) return g.roles.doppelganger;
-  if (r.game === 'paparazzi') return { label: 'Sniper', brief: `${g.roles.sniper.brief} Your target: ${nameOf(view, view.mine?.target)}.` };
   return g.roles[role] || { label: role, brief: '' };
 };
 
@@ -124,7 +121,7 @@ export default function Intro({ view, serverNow, intent }) {
   // Ask for camera, microphone and location during the briefing, so no prompt lands mid-round.
   useEffect(() => {
     if (r.stage !== 'brief') return;
-    prepareRound({ films: g.film.includes(r.roles[view.me]), zone: r.zone });
+    prepareRound({ films: g.film.includes(r.roles[view.me]) || r.game === 'mafia', zone: r.zone }); // Mafia: anyone may become a ghost camera
     purgeOldClips(`${view.code}:${r.n}:${r.spinId}`);
   }, [r.spinId]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -166,6 +163,24 @@ export default function Intro({ view, serverNow, intent }) {
         <Eyebrow>{isRandom ? `Random roulette · ${ARENAS[r.arena].label}${horror ? ' · Halloween' : ''}` : 'Host’s pick'}</Eyebrow>
         <View style={{ marginTop: 24, width: '100%' }}>{isRandom ? <Wheel view={view} serverNow={serverNow} onLocked={() => setLocked(true)} /> : <GameTitle size={44} />}</View>
         {isRandom && locked && <GameTitle size={32} style={{ marginTop: 24 }} />}
+      </View>
+    );
+  }
+
+  // Mafia: no role on screen — just the night coming.
+  if (r.game === 'mafia') {
+    return (
+      <View style={{ flex: 1, backgroundColor: '#000', alignItems: 'center', justifyContent: 'center', paddingBottom: 40, paddingHorizontal: 28 }} testID="countdown-screen">
+        <Moon size={26} color="#5a5a5a" />
+        <T size={13} w={700} ls={2.2} color="#8a8a8a" style={{ marginTop: 16 }}>
+          NIGHT 1 FALLS IN
+        </T>
+        <T size={96} w={700} tnum color="#fff" style={{ marginTop: 8, lineHeight: 104 }}>
+          {startsIn}
+        </T>
+        <T size={15} lh={1.45} color="#8a8a8a" center style={{ marginTop: 12, maxWidth: 300 }}>
+          Listen to the Storyteller. Close your eyes when it tells you to — your screen goes dark.
+        </T>
       </View>
     );
   }

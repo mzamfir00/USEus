@@ -5,6 +5,7 @@ import HorrorFx from '../game/HorrorFx';
 import { PlayerActions } from '../Moderation';
 import { Avatar, SectionLabel } from '../primitives';
 import LazyMap from '../game/zone/LazyMap';
+import { StorytellerSetup } from '../game/MafiaBriefing';
 
 const ARENA_ICONS = { indoor: House, park: Trees, forest: TreePine, supermarket: ShoppingCart, streets: Building2, roadtrip: Car };
 const PLACEHOLDERS = { indoor: 'Alex’s living room', park: 'Central Park', forest: 'Pine Ridge Trail', supermarket: 'Mega Image', streets: 'Old Town', roadtrip: 'Rest stop on the A1' };
@@ -282,7 +283,7 @@ export default function Lobby({ view, intent, onInvite }) {
           >
             <Sparkles size={17} />
             <div className="mt-2 text-[14px] font-semibold">All games</div>
-            <div className={`text-[12px] ${pack === 'party' ? 'opacity-70' : 'muted'}`}>Party & classics · 11</div>
+            <div className={`text-[12px] ${pack === 'party' ? 'opacity-70' : 'muted'}`}>Party & classics · {Object.values(GAMES).filter((g) => packOf(g) === 'party').length}</div>
           </button>
           <button
             type="button"
@@ -296,7 +297,7 @@ export default function Lobby({ view, intent, onInvite }) {
             <div className="relative">
               <Flame size={17} className="breathe" />
               <div className="horror-title mt-1.5 text-[19px] leading-none">Halloween Horror</div>
-              <div className="vhs mt-1 text-[10.5px] text-white/60">5 rituals · until {HALLOWEEN.until}</div>
+              <div className="vhs mt-1 text-[10.5px] text-white/60">{Object.values(GAMES).filter((g) => packOf(g) === 'halloween').length} rituals · until {HALLOWEEN.until}</div>
             </div>
           </button>
         </div>
@@ -354,6 +355,8 @@ export default function Lobby({ view, intent, onInvite }) {
           )}
         </>
       )}
+
+      {(st.mode === 'manual' ? chosen?.id === 'mafia' : fits.some((g) => g.id === 'mafia')) && <StorytellerSetup view={view} intent={intent} where="lobby" />}
 
       <div className="h-32" />
       <div className="fixed inset-x-0 bottom-0 z-30 bg-gradient-to-t from-[var(--bg)] via-[var(--bg)] to-transparent pt-10">

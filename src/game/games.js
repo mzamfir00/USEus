@@ -1,12 +1,12 @@
 // Arenas, game modes and their content.
 
 export const ARENAS = {
-  indoor: { id: 'indoor', label: 'Indoor', full: 'Indoor / Apartment', style: 'auteur', missionCategory: 'creator' },
-  park: { id: 'park', label: 'Park', full: 'Park / Outdoors', style: 'dossier', missionCategory: 'streets' },
-  forest: { id: 'forest', label: 'Forest', full: 'Forest / Trail', style: 'dossier', missionCategory: 'streets' },
-  supermarket: { id: 'supermarket', label: 'Supermarket', full: 'Supermarket / Mall', style: 'auteur', missionCategory: 'supermarket' },
-  streets: { id: 'streets', label: 'City Streets', full: 'City Streets', style: 'dossier', missionCategory: 'streets' },
-  roadtrip: { id: 'roadtrip', label: 'Roadtrip', full: 'Roadtrip / Spot', style: 'kinetic', missionCategory: 'roadtrip' },
+  indoor: { id: 'indoor', label: 'Indoor', full: 'Indoor / Apartment', style: 'auteur' },
+  park: { id: 'park', label: 'Park', full: 'Park / Outdoors', style: 'dossier' },
+  forest: { id: 'forest', label: 'Forest', full: 'Forest / Trail', style: 'dossier' },
+  supermarket: { id: 'supermarket', label: 'Supermarket', full: 'Supermarket / Mall', style: 'auteur' },
+  streets: { id: 'streets', label: 'City Streets', full: 'City Streets', style: 'dossier' },
+  roadtrip: { id: 'roadtrip', label: 'Roadtrip', full: 'Roadtrip / Spot', style: 'kinetic' },
 };
 
 const ALL = Object.keys(ARENAS);
@@ -38,6 +38,27 @@ export const HUNT = {
 };
 
 export const GAMES = {
+  /* ------------------------------ flagship ------------------------------ */
+  mafia: {
+    id: 'mafia',
+    short: 'Mafia',
+    film: [], // no Snitch Protocol: eyes closed at night, phones face-down
+    name: 'Mafia: The AI Storyteller',
+    tagline: 'One phone narrates out loud. Everyone plays. Find the Mafia before it finds you.',
+    arenas: ALL,
+    min: 4,
+    duration: 3600, // safety cap only: the game ends when a side wins
+    untimed: true, // no round clock: night, day and vote keep their own timers
+    noZone: true, // never a GPS Playzone round
+    roles: {
+      // Everyone's public role is "player"; the real one is a secret only that phone sees.
+      player: { label: 'Player', brief: 'Hold the card on your screen to see your secret role, then hide it.' },
+      mafia: { label: 'Mafia', icon: '🔪', brief: 'Wake up when the Storyteller calls Mafia. Silently tap a player on your screen to eliminate them. Blend in during the day.' },
+      doctor: { label: 'Doctor', icon: '🩺', brief: 'Wake up when the Storyteller calls the Doctor. Tap one player (including yourself) to protect them from the Mafia tonight.' },
+      detective: { label: 'Detective (Polițist)', icon: '🕵️', brief: 'Wake up when the Storyteller calls the Detective. Tap one player to immediately see on your screen if they are MAFIA or INNOCENT.' },
+      citizen: { label: 'Citizen (Cetățean)', icon: '👤', brief: 'Keep your eyes closed all night. During the day, listen for clues and vote out the Mafia.' },
+    },
+  },
   blind_sonar: {
     id: 'blind_sonar',
     short: 'Sonar',
@@ -57,23 +78,6 @@ export const GAMES = {
       survivor: {
         label: 'Survivor',
         brief: 'Film the hunter. When a sonar pulse hits, your phone beeps loudly — dodge without a sound. Tap Near miss when they come within a metre.',
-      },
-    },
-  },
-  paparazzi: {
-    id: 'paparazzi',
-    short: 'Paparazzi',
-    film: [], // roles under the Snitch Protocol
-    name: 'Paparazzi Sniper',
-    tagline: 'Photograph your secret target before they spot you.',
-    arenas: ALL,
-    min: 2,
-    duration: 240,
-    films: false,
-    roles: {
-      sniper: {
-        label: 'Sniper',
-        brief: 'Your target is private. Snap them when they are not looking at your lens. Everyone votes on every shot at the end.',
       },
     },
   },
@@ -108,36 +112,6 @@ export const GAMES = {
     roles: {
       watcher: { label: 'The Watcher', brief: 'Stand far away, back to the runners. Toggle green and red. Anyone whose phone moves on red is out.' },
       runner: { label: 'Runner', brief: 'Film as you sneak toward the watcher. On red, freeze — your phone’s motion sensor is watching. Tag the watcher to win.' },
-    },
-  },
-  hot_potato: {
-    id: 'hot_potato',
-    short: 'Hot Potato',
-    film: [], // roles under the Snitch Protocol
-    name: 'Timebomb Hot Potato',
-    tagline: 'Do the dare, pass the bomb. Don’t be holding it.',
-    arenas: ALL,
-    min: 2,
-    duration: 90,
-    starter: 'First holder',
-    films: false,
-    roles: {
-      player: { label: 'Player', brief: 'If the bomb lands on your phone, do the 5-second dare, then pass it to someone else before it explodes.' },
-    },
-  },
-  undercover: {
-    id: 'undercover',
-    short: 'Undercover',
-    film: ['crew'], // roles under the Snitch Protocol
-    name: 'Undercover Saboteur',
-    tagline: 'One challenge. One hidden saboteur. Then everyone votes.',
-    arenas: ALL,
-    min: 3,
-    duration: 180,
-    films: true,
-    roles: {
-      crew: { label: 'Crew', brief: 'Complete the group challenge on camera. Watch everyone — one of you is secretly sabotaging it.' },
-      saboteur: { label: 'Undercover Saboteur', brief: 'Join the challenge, but sneak your 3 covert tasks into the video without getting caught.' },
     },
   },
   /* ---------------------------- childhood classics ---------------------------- */
@@ -313,7 +287,7 @@ export const GAMES = {
 
 // In rooms hosted from the native app, these games and the closing ring need the host's Pro
 // Pass, or a rewarded ad that unlocks them for one match. Everything else stays free.
-export const PRO_GAMES = ['midnight_man', 'daruma', 'doppelganger', 'dead_silence', 'paparazzi', 'sardines', 'marco_polo'];
+export const PRO_GAMES = ['midnight_man', 'daruma', 'doppelganger', 'dead_silence', 'sardines', 'marco_polo'];
 export const PRO_SHRINK = 'shrink'; // GPS Playzone: shrinking battle-royale ring
 export const BONUS_XP = 500; // post-round claim: your round XP again, plus this
 export const EMERGENCY_RADAR_MAX = 3; // purchased emergency pings a hunter may fire per round
@@ -423,43 +397,6 @@ export const DIRECTIONS = [
   'Wink at the camera — badly',
 ];
 
-/* ------------------------------- hot potato ------------------------------ */
-
-export const DARES = [
-  'Spin around twice',
-  'Do three squats',
-  'Say “banana” in three accents',
-  'Strike a superhero pose',
-  'Hop on one leg',
-  'Shred an air-guitar solo',
-  'Do your best robot',
-  'Touch your toes',
-  'Fake the most dramatic sneeze',
-  'Moonwalk two steps',
-  'Make a dinosaur noise',
-  'Salute the camera',
-];
-
-/* ------------------------------- undercover ------------------------------ */
-
-export const COVERT_TASKS = [
-  'Say the word “pineapple” naturally',
-  'Touch your left ear three times',
-  'Get someone to high-five you',
-  'Hum a song for five seconds',
-  'Point at the sky for no reason',
-  'Re-tie a shoelace on camera',
-  'Use the phrase “living legend”',
-  'Fake a dramatic sneeze',
-  'Stand on one leg for five seconds',
-  'Ask someone what time it is',
-  'Wink at the camera',
-  'Clap once, loudly, at a random moment',
-  'Sit down for no reason',
-  'Whisper someone’s name',
-  'Fake a three-second phone call',
-];
-
 /* ---------------------------------- XP ----------------------------------- */
 
 export const XP = {
@@ -469,8 +406,6 @@ export const XP = {
   sonarSurviveCaughtRound: 100,
   sonarHunterTimeout: 50,
   nearMiss: 150,
-  validShot: 300,
-  shotTarget: -50,
   telepromptCast: 200,
   telepromptActor: 100,
   inject: 25,
@@ -478,13 +413,6 @@ export const XP = {
   runnerSurvive: 100,
   watcherPerOut: 100,
   watcherWin: 300,
-  bombSurvive: 150,
-  bombLoser: -100,
-  crewCatch: 250,
-  crewMissed: 50,
-  sabEscape: 300,
-  sabTask: 100,
-  sabCaughtTask: 50,
   strike: -50, // Snitch Protocol: per filming violation
   seekFound: 100,
   seekAll: 200,
@@ -531,4 +459,11 @@ export const XP = {
   dopSurvive: 300,
   explorerSurvive: 100,
   explorerTaken: 50,
+  // Mafia
+  mafiaWin: 400, // every Mafia member, alive or not, when the Mafia wins
+  townWin: 300, // every Doctor, Detective and Citizen when the town wins
+  mafiaSurvive: 100, // still alive at the end
+  doctorSave: 150, // per night the Doctor saved the Mafia's target
+  detectiveFind: 100, // per Mafia member the Detective uncovered
+  voteRight: 50, // per vote that helped eliminate a Mafia member
 };

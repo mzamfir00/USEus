@@ -63,8 +63,9 @@ function SnitchOverlay({ reason, onResume, cameraOff }) {
   );
 }
 
-// Fullscreen game frame: leave button, game + role, synced round clock.
-export function GameShell({ view, serverNow, roleLabel, onLeave, children, light = false }) {
+// Fullscreen game frame: leave button, game + role, synced round clock. `hud={false}` hides
+// the top bar (Mafia nights: pitch-black screens).
+export function GameShell({ view, serverNow, roleLabel, onLeave, children, light = false, hud = true }) {
   useNow(500);
   useKeepAwake(); // screen stays on for the whole round
   const insets = useSafeAreaInsets();
@@ -116,7 +117,7 @@ export function GameShell({ view, serverNow, roleLabel, onLeave, children, light
           </ZoneStrobeContext.Provider>
         </PenaltyContext.Provider>
 
-        <View pointerEvents="box-none" style={{ position: 'absolute', left: 0, right: 0, top: 0, zIndex: 20, flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, paddingTop: top }}>
+        <View pointerEvents="box-none" style={{ position: 'absolute', left: 0, right: 0, top: 0, zIndex: 20, flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, paddingTop: top, display: hud ? 'flex' : 'none' }}>
           <TouchableOpacity
             accessibilityLabel={isHost ? 'Round menu' : 'Room menu'}
             testID="round-menu"
@@ -136,7 +137,7 @@ export function GameShell({ view, serverNow, roleLabel, onLeave, children, light
           <TouchableOpacity accessibilityLabel="Rules" testID="rules" onPress={() => setRules(true)} style={[chip, { width: 40, height: 40, borderRadius: 20, borderWidth: 1, alignItems: 'center', justifyContent: 'center' }]}>
             <CircleHelp size={18} color={fg} />
           </TouchableOpacity>
-          {r.game !== 'hot_potato' && (
+          {!GAMES[r.game]?.untimed && (
             <View pointerEvents="none" style={[chip, { borderRadius: 999, borderWidth: 1, paddingHorizontal: 14, paddingVertical: 10 }]}>
               <T size={14} w={600} tnum color={fg} testID="round-clock">
                 {formatTime(left)}

@@ -3,12 +3,13 @@ import QRCode from 'qrcode';
 import { Share2, X } from 'lucide-react';
 import { DNA_STYLES } from '../../game/constants';
 import { dnaInfo } from '../../game/engine';
+import { GAMES } from '../../game/games';
 import { errorText } from '../../hooks/useRoom';
 import { appUrl } from '../../lib/platform';
 import { buzz, Synth } from '../../lib/sound';
 import { useBlocked } from '../Moderation';
 import { LevelDots, Sheet } from '../primitives';
-import GameScreen, { ReviewScreen } from '../game/GameScreen';
+import GameScreen from '../game/GameScreen';
 import Intro from '../game/Intro';
 import { useNow } from './helpers';
 import Lobby from './Lobby';
@@ -89,11 +90,11 @@ function Evolution({ info, onDone }) {
   );
 }
 
-// Last-5-seconds beeps on every phone (not for the bomb, whose fuse is secret).
+// Last-5-seconds beeps on every phone (not for untimed games such as Mafia, which end on a win).
 function useTimerAlerts(view, serverNow) {
   const prev = useRef(null);
   useEffect(() => {
-    if (view?.phase !== 'round' || view.round.game === 'hot_potato') return undefined;
+    if (view?.phase !== 'round' || GAMES[view.round.game]?.untimed) return undefined;
     const id = setInterval(() => {
       const now = serverNow();
       if (view.round.stage !== 'live' || now < view.round.startsAt) return;
@@ -191,7 +192,6 @@ export default function Room({ room, code, onLeave }) {
             ) : (
               <GameScreen key={view.round.spinId} view={view} serverNow={serverNow} intent={intent} media={media} onLeave={onLeave} />
             ))}
-          {view.phase === 'review' && <ReviewScreen view={view} intent={intent} media={media} />}
           {view.phase === 'results' && <Results key={view.round.spinId} view={view} intent={intent} media={media} />}
         </main>
       )}

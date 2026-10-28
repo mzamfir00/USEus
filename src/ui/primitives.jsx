@@ -83,25 +83,6 @@ export function Empty({ icon: Icon, title, body }) {
   );
 }
 
-// Mission text with player names as small inverted chips.
-export function RichText({ text, names, pack }) {
-  const parts = text.split(/(\{(?:Player1|Player2|Player3|Pack)\})/g);
-  return (
-    <>
-      {parts.map((part, i) => {
-        const m = part.match(/^\{(Player1|Player2|Player3|Pack)\}$/);
-        if (!m) return <React.Fragment key={i}>{part}</React.Fragment>;
-        const value = m[1] === 'Pack' ? pack : names[m[1]];
-        return (
-          <span key={i} className="whitespace-nowrap rounded-[6px] bg-[var(--fg)] px-1.5 text-[var(--bg)]">
-            {value}
-          </span>
-        );
-      })}
-    </>
-  );
-}
-
 // 4-digit room code entry rendered as four cells over a hidden numeric input.
 export function CodeInput({ value, onChange, onComplete, autoFocus }) {
   const ref = useRef(null);

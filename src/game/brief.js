@@ -8,7 +8,7 @@ const nameOf = (view, id) => view.players.find((p) => p.id === id)?.name || 'Som
 // This phone's role, including secret roles only this phone may know about.
 export function myRoleKey(view) {
   const r = view.round;
-  if (r.game === 'undercover' && view.mine?.saboteur) return 'saboteur';
+  if (r.game === 'mafia') return view.mine?.role || null;
   if (r.game === 'doppelganger' && view.mine?.doppelganger) return 'doppelganger';
   return r.roles[view.me] || null;
 }

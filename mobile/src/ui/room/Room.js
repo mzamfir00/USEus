@@ -4,14 +4,14 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useKeepAwake } from 'expo-keep-awake';
 import QRCode from 'react-native-qrcode-svg';
 import { Share2, X, Zap } from 'lucide-react-native';
-import { DNA_STYLES, dnaInfo, roomPro } from '../../core';
+import { DNA_STYLES, GAMES, dnaInfo, roomPro } from '../../core';
 import { VIP_STYLE } from '../../config/monetization';
 import { activePro, openStore, setAdsAllowed, useMonetization } from '../../services/monetizationService';
 import { errorText } from '../../hooks/useRoom';
 import { inviteUrl } from '../../lib/platform';
 import { buzz, haptic, Synth } from '../../lib/sound';
 import { useTheme } from '../../theme';
-import GameScreen, { ReviewScreen } from '../game/GameScreen';
+import GameScreen from '../game/GameScreen';
 import Intro from '../game/Intro';
 import { useNow } from '../helpers';
 import { useBlocked } from '../Moderation';
@@ -107,11 +107,11 @@ function Evolution({ info, onDone }) {
   );
 }
 
-// Last-5-seconds beeps on every phone (not for the bomb, whose fuse is secret).
+// Last-5-seconds beeps on every phone (not for untimed games such as Mafia, which end on a win).
 function useTimerAlerts(view, serverNow) {
   const prev = useRef(null);
   useEffect(() => {
-    if (view?.phase !== 'round' || view.round.game === 'hot_potato') return undefined;
+    if (view?.phase !== 'round' || GAMES[view.round.game]?.untimed) return undefined;
     const id = setInterval(() => {
       const now = serverNow();
       if (view.round.stage !== 'live' || now < view.round.startsAt) return;
@@ -315,7 +315,6 @@ export default function Room({ room, code, onLeave }) {
         <View style={{ flex: 1, paddingTop: 8 }}>
           {view.phase === 'lobby' && <Lobby view={view} intent={intent} onInvite={() => setSheet('invite')} />}
           {view.phase === 'round' && <Intro key={view.round.spinId} view={view} serverNow={serverNow} intent={intent} />}
-          {view.phase === 'review' && <ReviewScreen view={view} intent={intent} media={media} />}
           {view.phase === 'results' && <Results key={view.round.spinId} view={view} intent={intent} media={media} />}
         </View>
       )}

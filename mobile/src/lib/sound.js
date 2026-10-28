@@ -183,6 +183,11 @@ export const haptic = {
   sonar() {
     [0, 500, 1000, 1500].forEach((t) => later(t, () => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Rigid).catch(() => {})));
   },
+  // Mafia: a gentle double tap wakes only the role being called.
+  wake() {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+    later(220, () => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {}));
+  },
   warning: () => Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => {}),
   error: () => Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {}),
   success: () => Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {}),

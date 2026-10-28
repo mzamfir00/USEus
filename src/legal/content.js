@@ -25,8 +25,8 @@ export function legalDocuments({ supportEmail = null, native = false } = {}) {
         p: [
           'The camera shows your viewfinder and records clips during a round. Clips stay on your phone and are never uploaded to our servers. You decide whether to save or share them.',
           native
-            ? 'Game photos (Paparazzi shots, Floor Is Lava proofs, TOMARE selfies) go straight to the other phones in your room during that round and are discarded when the room closes.'
-            : 'Game photos (Paparazzi shots, Floor Is Lava proofs, TOMARE selfies) go straight to the other phones in your room during that round and are discarded when the room closes. Your phone also measures brightness and movement in the picture to detect a covered lens or a camera pan; this is analysed on your phone only.',
+            ? 'Game photos (Floor Is Lava proofs, TOMARE selfies) go straight to the other phones in your room during that round and are discarded when the room closes.'
+            : 'Game photos (Floor Is Lava proofs, TOMARE selfies) go straight to the other phones in your room during that round and are discarded when the room closes. Your phone also measures brightness and movement in the picture to detect a covered lens or a camera pan; this is analysed on your phone only.',
           'The flashlight is switched on and off by some games (candles, strobes, blackouts).',
         ],
       },

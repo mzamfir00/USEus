@@ -8,6 +8,7 @@ import { buzz, Synth } from '../../lib/sound';
 import { Avatar } from '../primitives';
 import SafetyGate from '../Safety';
 import HorrorFx from './HorrorFx';
+import { MafiaBriefing, MafiaRules } from './MafiaBriefing';
 
 const nameOf = (view, id) => view.players.find((p) => p.id === id)?.name || 'Someone';
 
@@ -24,6 +25,7 @@ function SectionTitle({ icon: Icon, children }) {
 export function RulesSections({ view, setupFirst = true }) {
   const info = briefingFor(view);
   const [setupOpen, setSetupOpen] = useState(setupFirst);
+  if (view.round.game === 'mafia') return <MafiaRules view={view} />; // secret roles: public guide only
   const labels = ['Do this in real life', 'On your screen', 'Penalty'];
   const icons = [Footprints, Smartphone, Siren];
 
@@ -118,7 +120,7 @@ export function RulesSections({ view, setupFirst = true }) {
 }
 
 // Live "READY: 3/4 PLAYERS" + the big ready button and the host's force start.
-function ReadyBar({ view, intent }) {
+function ReadyBar({ view, intent, label = 'I UNDERSTAND THE RULES — READY' }) {
   const r = view.round;
   const here = r.participants.filter((id) => view.players.find((p) => p.id === id)?.connected);
   const ready = here.filter((id) => r.ready[id]);
@@ -162,7 +164,7 @@ function ReadyBar({ view, intent }) {
                 intent({ type: 'ready' });
               }}
             >
-              I UNDERSTAND THE RULES — READY
+              {label}
             </button>
           )
         ) : (
@@ -201,6 +203,15 @@ export default function Briefing({ view, intent }) {
   useEffect(() => {
     buzz([40, 30, 40]);
   }, []);
+
+  if (r.game === 'mafia') {
+    return (
+      <>
+        <MafiaBriefing view={view} intent={intent} footer={<ReadyBar view={view} intent={intent} label="I HID MY ROLE — READY" />} />
+        {!agreed && <SafetyGate extra={safetyNote(r, info.game)} onAgree={() => setAgreed(true)} />}
+      </>
+    );
+  }
 
   return (
     <div className={`enter relative pb-48 ${info.horror ? 'horror' : ''}`} data-briefing>

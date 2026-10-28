@@ -203,13 +203,16 @@ async function joinSupabase(sb, code, h) {
 
 /* -------------------------------- Public --------------------------------- */
 
+// Test seam (local harness): rooms ride a relay shaped like Supabase Realtime.
+const realtime = () => (globalThis.__USEUS_TEST_SB__ ? Promise.resolve(globalThis.__USEUS_TEST_SB__) : getSupabase());
+
 // handlers: onReady(kind), onError(reason), onConnect(connId), onData(connId, msg), onClose(connId)
 // Returns synchronously so connections arriving over P2P are handled while the
 // optional Supabase transport is still subscribing.
 export function openHost(code, handlers) {
   const buses = [hostPeer(code, handlers)];
   let closed = false;
-  getSupabase().then(async (sb) => {
+  realtime().then(async (sb) => {
     if (!sb || closed) return;
     try {
       const bus = await hostSupabase(sb, code, handlers);
@@ -230,7 +233,7 @@ export function openHost(code, handlers) {
 
 // handlers: onOpen(kind), onData(msg), onClose(), onError(reason)
 export async function openClient(code, handlers) {
-  const sb = await getSupabase();
+  const sb = await realtime();
   if (sb) {
     const viaCloud = await joinSupabase(sb, code, handlers).catch(() => null);
     if (viaCloud) return viaCloud;

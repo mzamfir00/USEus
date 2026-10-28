@@ -41,8 +41,9 @@ export function useWakeLock() {
   }, []);
 }
 
-// Fullscreen game frame: leave button, game + role, synced round clock.
-export function GameShell({ view, serverNow, roleLabel, onLeave, children, light = false }) {
+// Fullscreen game frame: leave button, game + role, synced round clock. `hud={false}` hides
+// the top bar (Mafia nights: pitch-black screens).
+export function GameShell({ view, serverNow, roleLabel, onLeave, children, light = false, hud = true }) {
   useNow(500);
   useWakeLock();
   const intent = useContext(IntentContext);
@@ -75,7 +76,7 @@ export function GameShell({ view, serverNow, roleLabel, onLeave, children, light
         style={r.zone ? { '--zone-h': `${Math.max(0, zoneRows + 8 - 150)}px`, '--zone-top': `${Math.max(0, zoneRows + 8 - 84)}px` } : undefined}
       >
         <ZoneStrobeContext.Provider value={zoneStrobe}>{children}</ZoneStrobeContext.Provider>
-        <div className="pointer-events-none absolute inset-x-0 top-0 z-20 flex items-center gap-3 px-4 pt-[max(14px,var(--safe-top))]">
+        <div className={`pointer-events-none absolute inset-x-0 top-0 z-20 flex items-center gap-3 px-4 pt-[max(14px,var(--safe-top))] ${hud ? '' : 'hidden'}`}>
           <button
             type="button"
             aria-label={isHost ? 'Round menu' : 'Room menu'}
@@ -91,7 +92,7 @@ export function GameShell({ view, serverNow, roleLabel, onLeave, children, light
           <button type="button" aria-label="Rules" onClick={() => setRules(true)} className={`pointer-events-auto grid h-10 w-10 shrink-0 place-items-center rounded-full border backdrop-blur ${chip}`}>
             <CircleHelp size={18} />
           </button>
-          {r.game !== 'hot_potato' && <div className={`tnum rounded-full border px-3.5 py-2.5 text-[14px] font-semibold backdrop-blur ${chip}`}>{formatTime(left)}</div>}
+          {!GAMES[r.game]?.untimed && <div className={`tnum rounded-full border px-3.5 py-2.5 text-[14px] font-semibold backdrop-blur ${chip}`}>{formatTime(left)}</div>}
         </div>
         {r.zone && r.roles[view.me] ? (
           <ZoneLayer view={view} serverNow={serverNow} intent={intent} onStrobe={setZoneStrobe} onRows={setZoneRows}>

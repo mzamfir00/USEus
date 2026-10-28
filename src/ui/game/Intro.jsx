@@ -1,21 +1,18 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { MapPin } from 'lucide-react';
+import { MapPin, Moon } from 'lucide-react';
 import { PICK_MS, WHEEL_MS } from '../../game/engine';
 import { ARENAS, GAMES } from '../../game/games';
 import { buzz, Synth } from '../../lib/sound';
 import { useNow } from '../room/helpers';
 import Briefing from './Briefing';
 import HorrorFx from './HorrorFx';
-import { nameOf } from './shared';
 
 const roleBrief = (view) => {
   const r = view.round;
   const g = GAMES[r.game];
   const role = r.roles[view.me];
   if (!role) return { label: 'Spectator', brief: 'You joined mid-round. Watch this one — you’re in next time.' };
-  if (r.game === 'undercover' && view.mine?.saboteur) return g.roles.saboteur;
   if (r.game === 'doppelganger' && view.mine?.doppelganger) return g.roles.doppelganger;
-  if (r.game === 'paparazzi') return { label: 'Sniper', brief: `${g.roles.sniper.brief} Your target: ${nameOf(view, view.mine?.target)}.` };
   return g.roles[role];
 };
 
@@ -144,6 +141,20 @@ export default function Intro({ view, serverNow, intent }) {
           {isRandom ? <Wheel view={view} serverNow={serverNow} onLocked={() => setLocked(true)} /> : <div className={`pop title text-[44px] ${horror ? 'horror-title' : ''}`}>{g.name}</div>}
         </div>
         {isRandom && locked && <div className={`pop title mt-6 text-[32px] ${horror ? 'horror-title' : ''}`}>{g.name}</div>}
+      </div>
+    );
+  }
+
+  // Mafia: no role on screen — just the night coming.
+  if (r.game === 'mafia') {
+    return (
+      <div className="fixed inset-0 z-40 grid place-items-center bg-black px-7 text-center" data-countdown-screen>
+        <div className="flex flex-col items-center">
+          <Moon size={26} className="text-[#5a5a5a]" />
+          <div className="mt-4 text-[13px] font-bold tracking-[0.16em] text-[#8a8a8a]">NIGHT 1 FALLS IN</div>
+          <div className="tnum mt-2 text-[96px] font-bold leading-none text-white">{startsIn}</div>
+          <p className="mt-3 max-w-[30ch] text-[15px] leading-relaxed text-[#8a8a8a]">Listen to the Storyteller. Close your eyes when it tells you to — your screen goes dark.</p>
+        </div>
       </div>
     );
   }

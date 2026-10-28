@@ -9,6 +9,44 @@ export const SNITCH_LINE = 'Snitch Protocol: stopping the recording, leaving the
 export const SNITCH_DARK_LINE = 'Snitch Protocol: stopping the recording or leaving the app sets off a siren and a strobe (−50 XP). Darkness is fine.';
 
 export const BRIEFINGS = {
+  mafia: {
+    setup: [
+      'Sit in a circle where everyone can hear the Storyteller phone, and turn its volume all the way up.',
+      'Hold the card on your phone to see your secret role. Let go, keep a straight face, then tap ready.',
+      'Night: everyone closes their eyes. Open them only when the Storyteller calls your role, and tap on your screen in silence.',
+      'Day: talk, accuse, defend. When the timer ends, every living player votes on their own phone.',
+    ],
+    roles: {
+      mafia: {
+        irl: 'Wake up when the Storyteller calls Mafia. Silently tap a player on your screen to eliminate them. Blend in during the day.',
+        controls: 'At night your screen shows the living players: tap one, then confirm. With a partner, you both have to land on the same name.',
+        penalty: 'Caught by the town vote and you’re out.',
+        summary: 'Wakes at night and silently picks someone to eliminate. Pretends to be a citizen by day.',
+        hidden: true,
+      },
+      doctor: {
+        irl: 'Wake up when the Storyteller calls the Doctor. Tap one player (including yourself) to protect them from the Mafia tonight.',
+        controls: 'Tap a name, then Protect.',
+        penalty: null,
+        summary: 'Wakes at night and protects one player. If the Mafia picked them, nobody dies.',
+        hidden: true,
+      },
+      detective: {
+        irl: 'Wake up when the Storyteller calls the Detective. Tap one player to immediately see on your screen if they are MAFIA or INNOCENT.',
+        controls: 'Tap a name, then Investigate: the verdict shows for 4 seconds, only on your screen.',
+        penalty: null,
+        summary: 'Wakes at night and checks one player: Mafia or innocent. Only they see the answer.',
+        hidden: true,
+      },
+      citizen: {
+        irl: 'Keep your eyes closed all night. During the day, listen for clues and vote out the Mafia.',
+        controls: 'Your screen stays dark at night. By day: the morning report, the debate timer and your ballot.',
+        penalty: null,
+        summary: 'Sleeps all night. Finds the Mafia by talking, then votes them out.',
+        hidden: true,
+      },
+    },
+  },
   blind_sonar: {
     setup: [
       'Clear the room or a patch of grass of anything you could trip over.',
@@ -28,21 +66,6 @@ export const BRIEFINGS = {
         controls: 'Camera that records automatically, plus “Near miss” when the hunter passes within a metre (3 max, +150 XP each).',
         penalty: null,
         summary: 'Film the hunter. Their phones beep on every pulse, which gives away where they stand.',
-      },
-    },
-  },
-  paparazzi: {
-    setup: [
-      'Agree on the play area — everyone stays in the same space.',
-      'Act natural: chat, walk around, keep your phone out like normal.',
-      'Shutter sounds are fine; nobody hides in a closed room.',
-    ],
-    roles: {
-      sniper: {
-        irl: 'Your secret target is {target}. Snap them when they aren’t looking at your lens — and watch who is aiming at you.',
-        controls: 'A sniper viewfinder with a shutter button: 3 shots per round. Every shot goes to a squad vote at the end.',
-        penalty: 'If your target was looking at you, the squad votes “spotted” and the shot scores nothing. Getting sniped costs 50 XP.',
-        summary: 'Every player is a sniper with a secret target in a chain — someone is hunting you as well.',
       },
     },
   },
@@ -92,35 +115,6 @@ export const BRIEFINGS = {
         controls: 'Camera with the light on top and “I tagged the watcher”. Without a motion sensor you hold a button to stay frozen.',
         penalty: 'Moving on red (after a 0.7 s grace) puts you out.',
         summary: 'Film and creep forward. Any motion on red knocks them out.',
-      },
-    },
-  },
-  hot_potato: {
-    setup: ['Stand in a circle, within arm’s reach of each other.', 'Phone volume to 100% — the ticking speeds up.', 'Leave room for dares: spins, squats, superhero poses.'],
-    roles: {
-      player: {
-        irl: 'If the bomb lands on you, do the dare out loud right away, then pass it.',
-        controls: 'The holder sees the dare and, after 5 s, a list of players to pass to. Everyone else sees who holds it.',
-        penalty: 'Holding it when it explodes costs 100 XP. The fuse is secret.',
-        summary: 'Same job for everyone: do the dare, pass the bomb, hope.',
-      },
-    },
-  },
-  undercover: {
-    setup: ['Read the challenge together when it appears.', 'Everyone films the challenge from their own angle.', 'Stay together — the vote at the end needs witnesses.'],
-    roles: {
-      crew: {
-        irl: 'Complete the group challenge on camera and watch everyone for odd behaviour.',
-        controls: 'Camera plus the challenge card. When time is up, every phone votes for the saboteur.',
-        penalty: null,
-        summary: 'Everyone else looks like crew, completing the challenge on camera.',
-      },
-      saboteur: {
-        hidden: true,
-        irl: 'Join the challenge, but sneak your 3 covert tasks into the video without getting caught.',
-        controls: 'Tap “Peek” on your secret card to see your covert tasks and tick each one off.',
-        penalty: 'Get voted out and you only keep 50 XP per task.',
-        summary: 'One hidden player is secretly sneaking covert tasks into the video.',
       },
     },
   },
